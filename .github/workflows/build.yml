@@ -18,7 +18,7 @@ jobs:
           - platform: ubuntu-22.04
             args: ''
           - platform: macos-latest
-            args: '--target universal-apple-darwin'
+            args: ''
           - platform: windows-latest
             args: ''
 
@@ -35,8 +35,11 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          workspaces: './src-tauri -> target'
 
       - name: Install dependencies (Ubuntu)
         if: matrix.platform == 'ubuntu-22.04'
@@ -49,14 +52,17 @@ jobs:
             patchelf
 
       - name: Install npm dependencies
-        run: npm install
+        run: npm ci || npm install
+
+      - name: Build frontend
+        run: npm run build
 
       - name: Build Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: ${{ matrix.args }}
+          tauriScript: npx tauri
 
       - name: Upload artifacts (macOS)
         if: matrix.platform == 'macos-latest'
