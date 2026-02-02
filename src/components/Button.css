@@ -1,0 +1,114 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Sizes */
+.btn-sm {
+  padding: 8px 16px;
+  font-size: 13px;
+}
+
+.btn-md {
+  padding: 10px 20px;
+  font-size: 14px;
+}
+
+.btn-lg {
+  padding: 12px 24px;
+  font-size: 15px;
+}
+
+/* Variants */
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary-500) 0%, var(--primary-300) 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(46, 89, 132, 0.2);
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(46, 89, 132, 0.3);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background: white;
+  color: var(--primary-500);
+  border: 2px solid var(--primary-500);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--primary-500);
+  color: white;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--gray-700);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--gray-100);
+  color: var(--gray-900);
+}
+
+.btn-danger {
+  background: var(--error-500);
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #D32F2F;
+  transform: translateY(-2px);
+}
+
+/* Loading state */
+.btn-loading {
+  position: relative;
+  pointer-events: none;
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  border-top-color: transparent;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Icon */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2em;
+}
+
+.btn-with-icon .btn-icon {
+  margin-right: -4px;
+}

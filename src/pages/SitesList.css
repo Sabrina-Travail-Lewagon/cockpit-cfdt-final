@@ -1,0 +1,124 @@
+.sites-list {
+  padding: 32px 40px;
+  max-width: 1800px;
+  margin: 0 auto;
+}
+
+.sites-header {
+  margin-bottom: 32px;
+}
+
+.header-content h1 {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0 0 8px 0;
+}
+
+.header-content p {
+  font-size: 16px;
+  color: var(--gray-600);
+  margin: 0;
+}
+
+.sites-search {
+  margin-bottom: 24px;
+  max-width: 600px;
+}
+
+.sites-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.stat-card {
+  background: white;
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  transition: all var(--transition-fast);
+}
+
+.stat-card:hover {
+  border-color: var(--primary-300);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.stat-card.success {
+  background: var(--success-100);
+  border-color: var(--success-500);
+}
+
+.stat-card.warning {
+  background: var(--warning-100);
+  border-color: var(--warning-500);
+}
+
+.stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin-bottom: 4px;
+}
+
+.stat-card.success .stat-value {
+  color: var(--success-700);
+}
+
+.stat-card.warning .stat-value {
+  color: var(--warning-500);
+}
+
+.stat-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gray-600);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sites-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 20px;
+  animation: fadeIn 0.3s ease;
+}
+
+.sites-empty {
+  text-align: center;
+  padding: 80px 20px;
+}
+
+.empty-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.sites-empty h3 {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--gray-700);
+  margin: 0 0 8px 0;
+}
+
+.sites-empty p {
+  font-size: 16px;
+  color: var(--gray-500);
+  margin: 0;
+}
+
+@media (max-width: 1400px) {
+  .sites-grid {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+}
+
+@media (max-width: 1024px) {
+  .sites-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+}

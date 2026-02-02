@@ -1,0 +1,41 @@
+[package]
+name = "cockpit-cfdt"
+version = "1.0.0"
+description = "Cockpit CFDT - Application sécurisée de gestion de sites"
+authors = ["Sabrina"]
+license = "MIT"
+repository = ""
+edition = "2021"
+
+# Optimisation pour la taille du binaire
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "z"
+strip = true
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+# Tauri - Framework desktop
+tauri = { version = "1.5", features = ["shell-open"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Cryptographie - Chiffrement AES-256-GCM
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
+zeroize = { version = "1.7", features = ["derive"] }
+base64 = "0.21"
+
+# Système de fichiers
+dirs = "5.0"
+thiserror = "1.0"
+
+[features]
+# Custom features
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

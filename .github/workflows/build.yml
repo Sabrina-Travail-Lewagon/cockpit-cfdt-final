@@ -1,0 +1,123 @@
+name: Build Cockpit CFDT
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os: ubuntu-latest
+            rust_target: x86_64-unknown-linux-gnu
+            artifact_name: cockpit-cfdt-linux
+          - os: macos-latest
+            rust_target: x86_64-apple-darwin
+            artifact_name: cockpit-cfdt-macos
+          - os: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            artifact_name: cockpit-cfdt-windows
+
+    runs-on: ${{ matrix.platform.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Force clean all caches
+        run: |
+          rm -rf ~/.cargo/registry || true
+          rm -rf ~/.cargo/git || true
+          rm -rf target || true
+        shell: bash
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.rust_target }}
+
+      - name: Install dependencies (Ubuntu)
+        if: matrix.platform.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev
+
+      - name: Install npm dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build Tauri App (no cache)
+        run: npm run tauri build
+        env:
+          CARGO_INCREMENTAL: 0
+
+      - name: Upload artifacts (macOS)
+        if: matrix.platform.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform.artifact_name }}
+          path: |
+            src-tauri/target/release/bundle/macos/
+
+      - name: Upload artifacts (Windows)
+        if: matrix.platform.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform.artifact_name }}
+          path: |
+            src-tauri/target/release/bundle/msi/
+            src-tauri/target/release/cockpit-cfdt.exe
+
+      - name: Upload artifacts (Linux)
+        if: matrix.platform.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform.artifact_name }}
+          path: |
+            src-tauri/target/release/bundle/deb/
+            src-tauri/target/release/bundle/appimage/
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            cockpit-cfdt-macos/**/*
+            cockpit-cfdt-windows/**/*
+            cockpit-cfdt-linux/**/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
