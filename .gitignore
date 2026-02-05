@@ -4,13 +4,10 @@ node_modules/
 # Build output
 dist/
 
-# Logs
-*.log
-npm-debug.log*
-
-# OS files
-.DS_Store
-Thumbs.db
+# Environment files
+.env
+.env.local
+.env.*.local
 
 # IDE
 .vscode/
@@ -18,10 +15,10 @@ Thumbs.db
 *.swp
 *.swo
 
-# Environment files
-.env
-.env.local
-.env.*.local
+# OS
+.DS_Store
+Thumbs.db
 
-# Tauri
-src-tauri/target/
+# Logs
+*.log
+npm-debug.log*
