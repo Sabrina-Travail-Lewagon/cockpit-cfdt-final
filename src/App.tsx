@@ -10,15 +10,19 @@ function App() {
   const [appData, setAppData] = useState<AppData | null>(null);
   const [dataFileExists, setDataFileExists] = useState(false);
   const [password, setPassword] = useState<string>(''); // Garder le mot de passe pour sauvegarder
+  const [initError, setInitError] = useState<string>(''); // Erreur d'initialisation
 
   useEffect(() => {
     async function init() {
       try {
         // Déterminer le dossier de l'app (mode portable)
+        console.log('Initialisation...');
         const appDir = await getAppDirectory();
+        console.log('Dossier app:', appDir);
 
         // Initialiser le storage
         const exists = await initializeStorage(appDir);
+        console.log('Storage initialisé, fichier existe:', exists);
         setDataFileExists(exists);
 
         // Vérifier si verrouillé
@@ -26,6 +30,8 @@ function App() {
         setStatus(locked ? 'locked' : 'unlocked');
       } catch (error) {
         console.error('Erreur initialisation:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        setInitError(errorMessage);
         setStatus('locked');
       }
     }
@@ -80,6 +86,7 @@ function App() {
       <UnlockScreen
         dataFileExists={dataFileExists}
         onUnlock={handleUnlock}
+        initError={initError}
       />
     );
   }
@@ -104,16 +111,10 @@ async function getAppDirectory(): Promise<string> {
   }
 
   // Mode production : utiliser le dossier AppData de Tauri
+  // Le backend Rust créera les dossiers nécessaires
   const pathModule = await import('@tauri-apps/api/path');
   const appDataPath = await pathModule.appDataDir();
-
-  // S'assurer que le dossier existe
-  const fsModule = await import('@tauri-apps/api/fs');
-  const exists = await fsModule.exists(appDataPath);
-  if (!exists) {
-    await fsModule.createDir(appDataPath, { recursive: true });
-  }
-
+  console.log('AppData path:', appDataPath);
   return appDataPath;
 }
 
