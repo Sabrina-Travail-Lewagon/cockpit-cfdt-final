@@ -73,16 +73,24 @@ function App() {
 async function getAppDirectory(): Promise<string> {
   // En mode portable, on utilise le dossier où se trouve l'exécutable
   // Pour le développement, on utilise un dossier temporaire
-  
+
   if (import.meta.env.DEV) {
     // Mode développement : utiliser un dossier temp
     return '/tmp/cockpit-cfdt-dev';
   }
-  
-  // Mode production : détection automatique du dossier
-  // Tauri fournit le chemin de l'app
-  const { appDir } = await import('@tauri-apps/api/path');
-  return await appDir();
+
+  // Mode production : utiliser le dossier AppData de Tauri
+  const pathModule = await import('@tauri-apps/api/path');
+  const appDataPath = await pathModule.appDataDir();
+
+  // S'assurer que le dossier existe
+  const fsModule = await import('@tauri-apps/api/fs');
+  const exists = await fsModule.exists(appDataPath);
+  if (!exists) {
+    await fsModule.createDir(appDataPath, { recursive: true });
+  }
+
+  return appDataPath;
 }
 
 export default App;
