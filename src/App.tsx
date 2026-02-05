@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AppData, AppStatus } from './types';
-import { initializeStorage, isLocked } from './utils/tauri';
+import { initializeStorage, isLocked, saveData, lock } from './utils/tauri';
 import { UnlockScreen } from './pages/UnlockScreen';
 import { MainLayout } from './pages/MainLayout';
 import './App.css';
@@ -9,17 +9,18 @@ function App() {
   const [status, setStatus] = useState<AppStatus>('initializing');
   const [appData, setAppData] = useState<AppData | null>(null);
   const [dataFileExists, setDataFileExists] = useState(false);
+  const [password, setPassword] = useState<string>(''); // Garder le mot de passe pour sauvegarder
 
   useEffect(() => {
     async function init() {
       try {
         // Déterminer le dossier de l'app (mode portable)
         const appDir = await getAppDirectory();
-        
+
         // Initialiser le storage
         const exists = await initializeStorage(appDir);
         setDataFileExists(exists);
-        
+
         // Vérifier si verrouillé
         const locked = await isLocked();
         setStatus(locked ? 'locked' : 'unlocked');
@@ -28,19 +29,42 @@ function App() {
         setStatus('locked');
       }
     }
-    
+
     init();
   }, []);
 
-  const handleUnlock = (data: AppData) => {
+  const handleUnlock = (data: AppData, pwd: string) => {
     setAppData(data);
+    setPassword(pwd); // Stocker le mot de passe pour les sauvegardes
     setStatus('unlocked');
   };
 
-  const handleLock = () => {
+  const handleLock = async () => {
+    try {
+      await lock(); // Appeler le backend pour verrouiller
+    } catch (error) {
+      console.error('Erreur verrouillage:', error);
+    }
     setAppData(null);
+    setPassword(''); // Effacer le mot de passe de la mémoire
     setStatus('locked');
   };
+
+  // Sauvegarder les données quand elles changent
+  const handleDataChange = useCallback(async (newData: AppData) => {
+    setAppData(newData);
+
+    // Sauvegarder dans le fichier chiffré
+    if (password) {
+      try {
+        await saveData(password, newData);
+        console.log('Données sauvegardées');
+      } catch (error) {
+        console.error('Erreur sauvegarde:', error);
+        // TODO: Afficher une notification d'erreur à l'utilisateur
+      }
+    }
+  }, [password]);
 
   if (status === 'initializing') {
     return (
@@ -63,7 +87,7 @@ function App() {
   return (
     <MainLayout
       appData={appData!}
-      onDataChange={setAppData}
+      onDataChange={handleDataChange}
       onLock={handleLock}
     />
   );

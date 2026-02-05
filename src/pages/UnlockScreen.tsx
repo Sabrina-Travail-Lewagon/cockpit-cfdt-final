@@ -8,7 +8,7 @@ import './UnlockScreen.css';
 
 interface UnlockScreenProps {
   dataFileExists: boolean;
-  onUnlock: (data: AppData) => void;
+  onUnlock: (data: AppData, password: string) => void;
 }
 
 export const UnlockScreen: React.FC<UnlockScreenProps> = ({
@@ -35,7 +35,7 @@ export const UnlockScreen: React.FC<UnlockScreenProps> = ({
         console.log('🔓 Mode développement : Utilisation de données mockées');
         await new Promise(resolve => setTimeout(resolve, 500)); // Simule chargement
         const mockData = getMockData();
-        onUnlock(mockData);
+        onUnlock(mockData, password);
         return;
       }
 
@@ -53,11 +53,11 @@ export const UnlockScreen: React.FC<UnlockScreenProps> = ({
 
         await createInitialData(password);
         const data = await unlock(password);
-        onUnlock(data);
+        onUnlock(data, password);
       } else {
         // Déverrouillage normal
         const data = await unlock(password);
-        onUnlock(data);
+        onUnlock(data, password);
       }
     } catch (err) {
       console.error('Erreur déverrouillage:', err);
