@@ -5,7 +5,11 @@
 }
 
 .sites-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   margin-bottom: 32px;
+  gap: 20px;
 }
 
 .header-content h1 {

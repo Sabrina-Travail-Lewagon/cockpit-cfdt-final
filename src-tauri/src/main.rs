@@ -95,6 +95,20 @@ fn restore_backup(backup_name: String, state: State<AppState>) -> Result<(), Str
     Ok(())
 }
 
+#[tauri::command]
+fn change_password(old_password: String, new_password: String, state: State<AppState>) -> Result<(), String> {
+    let storage_guard = state.storage_manager.lock().unwrap();
+    let storage = storage_guard.as_ref().ok_or("Storage non initialisé")?;
+
+    // Vérifier l'ancien mot de passe en chargeant les données
+    let data = storage.load(&old_password).map_err(|_| "Ancien mot de passe incorrect")?;
+
+    // Sauvegarder avec le nouveau mot de passe
+    storage.save(&data, &new_password, true).map_err(|e| format!("Erreur: {}", e))?;
+
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(AppState::new())
@@ -108,6 +122,7 @@ fn main() {
             get_data,
             list_backups,
             restore_backup,
+            change_password,
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors du lancement de l'application");

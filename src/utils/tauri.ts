@@ -64,3 +64,10 @@ export async function listBackups(): Promise<string[]> {
 export async function restoreBackup(backupName: string): Promise<void> {
   return await invoke('restore_backup', { backupName });
 }
+
+/**
+ * Change le mot de passe maître
+ */
+export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
+  return await invoke('change_password', { oldPassword, newPassword });
+}

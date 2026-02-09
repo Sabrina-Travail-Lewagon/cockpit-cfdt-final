@@ -1,14 +1,17 @@
 import { useState } from 'react';
-import { AppData } from '../types';
+import { AppData, Site } from '../types';
 import { Sidebar } from '../components/Sidebar';
 import { SitesList } from './SitesList';
 import { SiteDetail } from './SiteDetail';
+import { Settings } from './Settings';
+import { AddSiteModal } from '../components/AddSiteModal';
 import './MainLayout.css';
 
 interface MainLayoutProps {
   appData: AppData;
   onDataChange: (data: AppData) => void;
   onLock: () => void;
+  onPasswordChanged: (newPassword: string) => void;
 }
 
 export type ViewMode = 'all' | 'up-to-date' | 'action-required' | 'in-progress';
@@ -17,15 +20,19 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   appData,
   onDataChange,
   onLock,
+  onPasswordChanged,
 }) => {
   const [currentView, setCurrentView] = useState<ViewMode>('all');
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Handler pour changer de vue et fermer automatiquement le détail
   const handleViewChange = (view: ViewMode) => {
     setCurrentView(view);
     setSelectedSiteId(null); // Fermer le détail automatiquement
+    setShowSettings(false); // Fermer les paramètres
   };
 
   // Filtrer les sites selon la vue actuelle
@@ -74,6 +81,24 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     setSelectedSiteId(null);
   };
 
+  const handleAddSite = (newSite: Site) => {
+    const updatedData = {
+      ...appData,
+      sites: [...appData.sites, newSite],
+    };
+    onDataChange(updatedData);
+    setShowAddModal(false);
+  };
+
+  const handleDeleteSite = (siteId: string) => {
+    const updatedData = {
+      ...appData,
+      sites: appData.sites.filter((s) => s.id !== siteId),
+    };
+    onDataChange(updatedData);
+    setSelectedSiteId(null); // Retourner à la liste
+  };
+
   return (
     <div className="main-layout">
       <Sidebar
@@ -81,10 +106,19 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         currentView={currentView}
         onViewChange={handleViewChange}
         onLock={onLock}
+        onSettings={() => {
+          setShowSettings(true);
+          setSelectedSiteId(null);
+        }}
       />
 
       <main className="main-content">
-        {selectedSite ? (
+        {showSettings ? (
+          <Settings
+            onBack={() => setShowSettings(false)}
+            onPasswordChanged={onPasswordChanged}
+          />
+        ) : selectedSite ? (
           <SiteDetail
             site={selectedSite}
             onBack={handleBackToList}
@@ -97,6 +131,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
               };
               onDataChange(updatedData);
             }}
+            onDelete={handleDeleteSite}
           />
         ) : (
           <SitesList
@@ -104,10 +139,18 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             onSiteClick={handleSiteClick}
+            onAddSite={() => setShowAddModal(true)}
             currentView={currentView}
           />
         )}
       </main>
+
+      {showAddModal && (
+        <AddSiteModal
+          onAdd={handleAddSite}
+          onClose={() => setShowAddModal(false)}
+        />
+      )}
     </div>
   );
 };
