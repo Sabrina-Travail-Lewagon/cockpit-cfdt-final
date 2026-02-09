@@ -63,6 +63,7 @@ export const AddSiteModal: React.FC<AddSiteModalProps> = ({ onAdd, onClose }) =>
         template: '',
       },
       analytics: null,
+      extensions: [],
       checklist: [],
       interventions: [],
       contacts: [],

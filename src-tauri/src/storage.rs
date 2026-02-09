@@ -57,7 +57,11 @@ pub struct Site {
     
     /// Analytics
     pub analytics: Option<AnalyticsInfo>,
-    
+
+    /// Extensions Joomla installées
+    #[serde(default)]
+    pub extensions: Vec<Extension>,
+
     /// Checklist de tâches
     pub checklist: Vec<ChecklistItem>,
     
@@ -114,6 +118,14 @@ pub struct TechInfo {
 pub struct AnalyticsInfo {
     pub ga_id: Option<String>,
     pub gtm_id: Option<String>,
+}
+
+/// Extension Joomla
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Extension {
+    pub name: String,
+    pub version: Option<String>,
+    pub critical: bool,
 }
 
 /// Item de checklist
@@ -383,6 +395,7 @@ mod tests {
                 template: "Helix".to_string(),
             },
             analytics: None,
+            extensions: vec![],
             checklist: vec![],
             interventions: vec![],
             contacts: vec![],

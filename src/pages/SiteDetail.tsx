@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Site, ChecklistItem, Intervention } from '../types';
+import { Site, ChecklistItem, Intervention, Extension } from '../types';
 import { Button } from '../components/Button';
 import { PhpMyAdminModal } from '../components/PhpMyAdminModal';
 import { EditSiteModal } from '../components/EditSiteModal';
 import { ChecklistModal } from '../components/ChecklistModal';
 import { InterventionModal } from '../components/InterventionModal';
+import { ExtensionModal } from '../components/ExtensionModal';
 import './SiteDetail.css';
 
 interface SiteDetailProps {
@@ -21,6 +22,8 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
   const [editingChecklistIndex, setEditingChecklistIndex] = useState<number | null>(null);
   const [showInterventionModal, setShowInterventionModal] = useState(false);
   const [editingInterventionIndex, setEditingInterventionIndex] = useState<number | null>(null);
+  const [showExtensionModal, setShowExtensionModal] = useState(false);
+  const [editingExtensionIndex, setEditingExtensionIndex] = useState<number | null>(null);
 
   const handleToggleChecklistItem = (index: number) => {
     const updatedChecklist = [...site.checklist];
@@ -128,6 +131,66 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
     });
     setShowInterventionModal(false);
   };
+
+  // Gestion des extensions
+  const handleAddExtension = () => {
+    setEditingExtensionIndex(null);
+    setShowExtensionModal(true);
+  };
+
+  const handleEditExtension = (index: number) => {
+    setEditingExtensionIndex(index);
+    setShowExtensionModal(true);
+  };
+
+  const handleSaveExtension = (extension: Extension) => {
+    const extensions = site.extensions || [];
+    let updatedExtensions: Extension[];
+
+    if (editingExtensionIndex !== null) {
+      // Édition
+      updatedExtensions = [...extensions];
+      updatedExtensions[editingExtensionIndex] = extension;
+    } else {
+      // Ajout
+      updatedExtensions = [...extensions, extension];
+    }
+
+    // Trier: critiques en premier, puis par nom
+    updatedExtensions.sort((a, b) => {
+      if (a.critical !== b.critical) return a.critical ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    onUpdate({
+      ...site,
+      extensions: updatedExtensions,
+      last_update: new Date().toISOString(),
+    });
+    setShowExtensionModal(false);
+  };
+
+  const handleDeleteExtension = () => {
+    if (editingExtensionIndex === null) return;
+
+    const extensions = site.extensions || [];
+    const updatedExtensions = extensions.filter((_, i) => i !== editingExtensionIndex);
+    onUpdate({
+      ...site,
+      extensions: updatedExtensions,
+      last_update: new Date().toISOString(),
+    });
+    setShowExtensionModal(false);
+  };
+
+  // Extensions triées pour l'affichage
+  const sortedExtensions = [...(site.extensions || [])].sort((a, b) => {
+    if (a.critical !== b.critical) return a.critical ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  const criticalExtensions = sortedExtensions.filter(e => e.critical);
+  const otherExtensions = sortedExtensions.filter(e => !e.critical);
 
   return (
     <div className="site-detail">
@@ -269,6 +332,69 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
 
           <section className="detail-section">
             <div className="section-header">
+              <h2>🧩 Extensions</h2>
+              <Button variant="secondary" onClick={handleAddExtension} icon="+">
+                Ajouter
+              </Button>
+            </div>
+            {sortedExtensions.length === 0 ? (
+              <p className="empty-message">Aucune extension</p>
+            ) : (
+              <div className="extensions-list">
+                {criticalExtensions.length > 0 && (
+                  <div className="extensions-group">
+                    <div className="extensions-group-label">Extensions critiques :</div>
+                    <ul className="extensions-items">
+                      {criticalExtensions.map((ext, index) => {
+                        const originalIndex = (site.extensions || []).findIndex(
+                          e => e.name === ext.name && e.version === ext.version
+                        );
+                        return (
+                          <li
+                            key={index}
+                            className="extension-item critical clickable"
+                            onClick={() => handleEditExtension(originalIndex)}
+                            title="Cliquer pour modifier"
+                          >
+                            <span className="extension-name">{ext.name}</span>
+                            {ext.version && <span className="extension-version">: {ext.version}</span>}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+                {otherExtensions.length > 0 && (
+                  <div className="extensions-group">
+                    {criticalExtensions.length > 0 && (
+                      <div className="extensions-group-label">Autres extensions :</div>
+                    )}
+                    <ul className="extensions-items">
+                      {otherExtensions.map((ext, index) => {
+                        const originalIndex = (site.extensions || []).findIndex(
+                          e => e.name === ext.name && e.version === ext.version
+                        );
+                        return (
+                          <li
+                            key={index}
+                            className="extension-item clickable"
+                            onClick={() => handleEditExtension(originalIndex)}
+                            title="Cliquer pour modifier"
+                          >
+                            <span className="extension-name">{ext.name}</span>
+                            {ext.version && <span className="extension-version">: {ext.version}</span>}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          <section className="detail-section">
+            <div className="section-header">
               <h2>✅ Checklist</h2>
               <Button variant="secondary" onClick={handleAddChecklist} icon="+">
                 Ajouter
@@ -367,6 +493,15 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
           onSave={handleSaveIntervention}
           onDelete={editingInterventionIndex !== null ? handleDeleteIntervention : undefined}
           onClose={() => setShowInterventionModal(false)}
+        />
+      )}
+
+      {showExtensionModal && (
+        <ExtensionModal
+          extension={editingExtensionIndex !== null ? (site.extensions || [])[editingExtensionIndex] : null}
+          onSave={handleSaveExtension}
+          onDelete={editingExtensionIndex !== null ? handleDeleteExtension : undefined}
+          onClose={() => setShowExtensionModal(false)}
         />
       )}
     </div>
