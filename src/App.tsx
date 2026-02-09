@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AppData, AppStatus } from './types';
-import { initializeStorage, isLocked } from './utils/tauri';
+import { initializeStorage, isLocked, saveData, lock } from './utils/tauri';
 import { UnlockScreen } from './pages/UnlockScreen';
 import { MainLayout } from './pages/MainLayout';
 import './App.css';
@@ -9,38 +9,68 @@ function App() {
   const [status, setStatus] = useState<AppStatus>('initializing');
   const [appData, setAppData] = useState<AppData | null>(null);
   const [dataFileExists, setDataFileExists] = useState(false);
+  const [password, setPassword] = useState<string>(''); // Garder le mot de passe pour sauvegarder
+  const [initError, setInitError] = useState<string>(''); // Erreur d'initialisation
 
   useEffect(() => {
     async function init() {
       try {
         // Déterminer le dossier de l'app (mode portable)
+        console.log('Initialisation...');
         const appDir = await getAppDirectory();
-        
+        console.log('Dossier app:', appDir);
+
         // Initialiser le storage
         const exists = await initializeStorage(appDir);
+        console.log('Storage initialisé, fichier existe:', exists);
         setDataFileExists(exists);
-        
+
         // Vérifier si verrouillé
         const locked = await isLocked();
         setStatus(locked ? 'locked' : 'unlocked');
       } catch (error) {
         console.error('Erreur initialisation:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        setInitError(errorMessage);
         setStatus('locked');
       }
     }
-    
+
     init();
   }, []);
 
-  const handleUnlock = (data: AppData) => {
+  const handleUnlock = (data: AppData, pwd: string) => {
     setAppData(data);
+    setPassword(pwd); // Stocker le mot de passe pour les sauvegardes
     setStatus('unlocked');
   };
 
-  const handleLock = () => {
+  const handleLock = async () => {
+    try {
+      await lock(); // Appeler le backend pour verrouiller
+    } catch (error) {
+      console.error('Erreur verrouillage:', error);
+    }
     setAppData(null);
+    setPassword(''); // Effacer le mot de passe de la mémoire
     setStatus('locked');
   };
+
+  // Sauvegarder les données quand elles changent
+  const handleDataChange = useCallback(async (newData: AppData) => {
+    setAppData(newData);
+
+    // Sauvegarder dans le fichier chiffré
+    if (password) {
+      try {
+        await saveData(password, newData);
+        console.log('Données sauvegardées');
+      } catch (error) {
+        console.error('Erreur sauvegarde:', error);
+        // TODO: Afficher une notification d'erreur à l'utilisateur
+      }
+    }
+  }, [password]);
 
   if (status === 'initializing') {
     return (
@@ -56,6 +86,7 @@ function App() {
       <UnlockScreen
         dataFileExists={dataFileExists}
         onUnlock={handleUnlock}
+        initError={initError}
       />
     );
   }
@@ -63,7 +94,7 @@ function App() {
   return (
     <MainLayout
       appData={appData!}
-      onDataChange={setAppData}
+      onDataChange={handleDataChange}
       onLock={handleLock}
     />
   );
@@ -73,16 +104,18 @@ function App() {
 async function getAppDirectory(): Promise<string> {
   // En mode portable, on utilise le dossier où se trouve l'exécutable
   // Pour le développement, on utilise un dossier temporaire
-  
+
   if (import.meta.env.DEV) {
     // Mode développement : utiliser un dossier temp
     return '/tmp/cockpit-cfdt-dev';
   }
-  
-  // Mode production : détection automatique du dossier
-  // Tauri fournit le chemin de l'app
-  const { appDir } = await import('@tauri-apps/api/path');
-  return await appDir();
+
+  // Mode production : utiliser le dossier AppData de Tauri
+  // Le backend Rust créera les dossiers nécessaires
+  const pathModule = await import('@tauri-apps/api/path');
+  const appDataPath = await pathModule.appDataDir();
+  console.log('AppData path:', appDataPath);
+  return appDataPath;
 }
 
 export default App;

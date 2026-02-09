@@ -8,16 +8,18 @@ import './UnlockScreen.css';
 
 interface UnlockScreenProps {
   dataFileExists: boolean;
-  onUnlock: (data: AppData) => void;
+  onUnlock: (data: AppData, password: string) => void;
+  initError?: string;
 }
 
 export const UnlockScreen: React.FC<UnlockScreenProps> = ({
   dataFileExists,
   onUnlock,
+  initError,
 }) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(initError || '');
   const [loading, setLoading] = useState(false);
   const [isFirstTime, setIsFirstTime] = useState(!dataFileExists);
 
@@ -35,7 +37,7 @@ export const UnlockScreen: React.FC<UnlockScreenProps> = ({
         console.log('🔓 Mode développement : Utilisation de données mockées');
         await new Promise(resolve => setTimeout(resolve, 500)); // Simule chargement
         const mockData = getMockData();
-        onUnlock(mockData);
+        onUnlock(mockData, password);
         return;
       }
 
@@ -53,15 +55,17 @@ export const UnlockScreen: React.FC<UnlockScreenProps> = ({
 
         await createInitialData(password);
         const data = await unlock(password);
-        onUnlock(data);
+        onUnlock(data, password);
       } else {
         // Déverrouillage normal
         const data = await unlock(password);
-        onUnlock(data);
+        onUnlock(data, password);
       }
     } catch (err) {
       console.error('Erreur déverrouillage:', err);
-      setError(isFirstTime ? 'Erreur lors de la création' : 'Mot de passe incorrect');
+      // Afficher l'erreur exacte pour le débogage
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setError(errorMessage || 'Erreur inconnue');
     } finally {
       setLoading(false);
     }

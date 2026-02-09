@@ -16,6 +16,9 @@
         "all": false,
         "open": true
       },
+      "path": {
+        "all": true
+      },
       "fs": {
         "all": false,
         "readFile": true,
