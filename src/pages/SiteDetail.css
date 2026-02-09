@@ -57,6 +57,17 @@
   margin: 0 0 20px 0;
 }
 
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.section-header h2 {
+  margin: 0;
+}
+
 .access-grid {
   display: grid;
   gap: 16px;
@@ -139,6 +150,16 @@
   background: var(--gray-50);
   border-radius: var(--radius-md);
   border-left: 4px solid var(--primary-500);
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.intervention-item.clickable {
+  cursor: pointer;
+}
+
+.intervention-item.clickable:hover {
+  background: var(--gray-100);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .intervention-date {
@@ -231,7 +252,19 @@
   color: var(--gray-700);
 }
 
-.checklist-item span.done {
+.checklist-task {
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background var(--transition-fast);
+}
+
+.checklist-task:hover {
+  background: var(--gray-200);
+}
+
+.checklist-item span.done,
+.checklist-task.done {
   text-decoration: line-through;
   color: var(--gray-500);
 }
