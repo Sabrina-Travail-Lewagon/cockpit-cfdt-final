@@ -96,6 +96,7 @@ function App() {
       appData={appData!}
       onDataChange={handleDataChange}
       onLock={handleLock}
+      onPasswordChanged={setPassword}
     />
   );
 }

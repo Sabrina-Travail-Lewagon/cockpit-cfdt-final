@@ -1,6 +1,7 @@
 import { Site } from '../types';
 import { ViewMode } from './MainLayout';
 import { Input } from '../components/Input';
+import { Button } from '../components/Button';
 import { SiteCard } from '../components/SiteCard';
 import './SitesList.css';
 
@@ -9,6 +10,7 @@ interface SitesListProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onSiteClick: (siteId: string) => void;
+  onAddSite: () => void;
   currentView: ViewMode;
 }
 
@@ -17,6 +19,7 @@ export const SitesList: React.FC<SitesListProps> = ({
   searchQuery,
   onSearchChange,
   onSiteClick,
+  onAddSite,
   currentView,
 }) => {
   const getViewTitle = () => {
@@ -63,6 +66,9 @@ export const SitesList: React.FC<SitesListProps> = ({
           <h1>{getViewTitle()}</h1>
           <p>{getViewDescription()}</p>
         </div>
+        <Button variant="primary" onClick={onAddSite}>
+          + Ajouter un site
+        </Button>
       </div>
 
       <div className="sites-search">

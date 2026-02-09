@@ -7,6 +7,7 @@ interface SidebarProps {
   currentView: ViewMode;
   onViewChange: (view: ViewMode) => void;
   onLock: () => void;
+  onSettings: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -14,6 +15,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   onViewChange,
   onLock,
+  onSettings,
 }) => {
   const activeSites = sites.filter((s) => s.enabled);
   
@@ -142,11 +144,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       <div className="sidebar-footer">
-        <button className="footer-button" disabled>
+        <button className="footer-button" onClick={onSettings}>
           <span>⚙️</span>
           <span>Paramètres</span>
         </button>
-        
+
         <button className="footer-button lock-button" onClick={onLock}>
           <span>🔒</span>
           <span>Verrouiller</span>
