@@ -331,6 +331,76 @@
   margin: 0;
 }
 
+/* Extensions */
+.extensions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.extensions-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.extensions-group-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-600);
+}
+
+.extensions-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.extension-item {
+  font-size: 14px;
+  color: var(--gray-700);
+  padding: 8px 12px;
+  background: var(--gray-50);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.extension-item.clickable {
+  cursor: pointer;
+}
+
+.extension-item.clickable:hover {
+  background: var(--gray-100);
+}
+
+.extension-item.critical {
+  background: #fef3c7;
+  border-left: 3px solid #f59e0b;
+}
+
+.extension-item.critical:hover {
+  background: #fde68a;
+}
+
+.extension-name {
+  font-weight: 500;
+}
+
+.extension-item.critical .extension-name {
+  color: #b45309;
+}
+
+.extension-version {
+  color: var(--gray-500);
+}
+
+.extension-item.critical .extension-version {
+  color: #92400e;
+}
+
 @media (max-width: 1200px) {
   .detail-layout {
     grid-template-columns: 1fr;

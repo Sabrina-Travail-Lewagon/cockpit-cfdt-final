@@ -15,11 +15,18 @@ export interface Site {
   server: ServerInfo;
   tech: TechInfo;
   analytics: AnalyticsInfo | null;
+  extensions: Extension[];
   checklist: ChecklistItem[];
   interventions: Intervention[];
   contacts: Contact[];
   notes: string;
   last_update: string;
+}
+
+export interface Extension {
+  name: string;
+  version: string | null;
+  critical: boolean;
 }
 
 export interface SiteUrls {

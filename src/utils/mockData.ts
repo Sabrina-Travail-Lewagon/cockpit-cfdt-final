@@ -36,6 +36,13 @@ export function getMockData(): AppData {
         ga_id: 'UA-12345678-1',
         gtm_id: 'GTM-XXXXXXX',
       },
+      extensions: [
+        { name: 'Akeeba Backup', version: '10.2.2', critical: true },
+        { name: 'AdminTools', version: '7.8.5', critical: true },
+        { name: 'DJ-ImageSlider', version: null, critical: false },
+        { name: 'DJ-MegaMenu', version: null, critical: false },
+        { name: 'JCE', version: '2.9.45', critical: false },
+      ],
       checklist: [
         { task: 'Mise à jour Joomla 4.4.2', done: true, date: '2025-01-15' },
         { task: 'Backup mensuel', done: true, date: '2025-01-20' },
@@ -97,6 +104,10 @@ export function getMockData(): AppData {
         template: 'Cassiopeia',
       },
       analytics: null,
+      extensions: [
+        { name: 'Akeeba Backup', version: '9.8.1', critical: true },
+        { name: 'Regular Sourcerer', version: null, critical: false },
+      ],
       checklist: [
         { task: 'Mise à jour Joomla urgente', done: false, date: null },
         { task: 'Revoir template', done: false, date: null },
@@ -152,6 +163,13 @@ export function getMockData(): AppData {
         ga_id: null,
         gtm_id: 'GTM-ABC123',
       },
+      extensions: [
+        { name: 'Akeeba Backup', version: '10.2.2', critical: true },
+        { name: 'AdminTools', version: '7.8.5', critical: true },
+        { name: 'DropFiles', version: '5.3.0', critical: false },
+        { name: 'JCE', version: '2.9.45', critical: false },
+        { name: 'SP Page Builder', version: '5.0.1', critical: false },
+      ],
       checklist: [
         { task: 'Backup hebdomadaire', done: true, date: '2025-01-27' },
         { task: 'Test formulaire contact', done: true, date: '2025-01-25' },
@@ -218,6 +236,7 @@ export function getMockData(): AppData {
         template: 'Protostar',
       },
       analytics: null,
+      extensions: [],
       checklist: [],
       interventions: [
         {
