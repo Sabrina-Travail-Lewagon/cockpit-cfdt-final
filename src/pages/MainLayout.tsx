@@ -90,6 +90,15 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     setShowAddModal(false);
   };
 
+  const handleDeleteSite = (siteId: string) => {
+    const updatedData = {
+      ...appData,
+      sites: appData.sites.filter((s) => s.id !== siteId),
+    };
+    onDataChange(updatedData);
+    setSelectedSiteId(null); // Retourner à la liste
+  };
+
   return (
     <div className="main-layout">
       <Sidebar
@@ -122,6 +131,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
               };
               onDataChange(updatedData);
             }}
+            onDelete={handleDeleteSite}
           />
         ) : (
           <SitesList

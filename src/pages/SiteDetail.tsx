@@ -2,16 +2,19 @@ import { useState } from 'react';
 import { Site } from '../types';
 import { Button } from '../components/Button';
 import { PhpMyAdminModal } from '../components/PhpMyAdminModal';
+import { EditSiteModal } from '../components/EditSiteModal';
 import './SiteDetail.css';
 
 interface SiteDetailProps {
   site: Site;
   onBack: () => void;
   onUpdate: (site: Site) => void;
+  onDelete: (siteId: string) => void;
 }
 
-export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate }) => {
+export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, onDelete }) => {
   const [showPhpMyAdminModal, setShowPhpMyAdminModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   const handleToggleChecklistItem = (index: number) => {
     const updatedChecklist = [...site.checklist];
@@ -40,13 +43,17 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate }
         <Button variant="ghost" onClick={onBack} icon="←">
           Retour
         </Button>
-        
+
         <div className="header-title">
           <h1>{site.name}</h1>
           <span className="site-status">
             {site.enabled ? '✅ Actif' : '⏸️ Archivé'}
           </span>
         </div>
+
+        <Button variant="primary" onClick={() => setShowEditModal(true)}>
+          Modifier
+        </Button>
       </div>
 
       <div className="detail-layout">
@@ -214,6 +221,21 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate }
         <PhpMyAdminModal
           site={site}
           onClose={() => setShowPhpMyAdminModal(false)}
+        />
+      )}
+
+      {showEditModal && (
+        <EditSiteModal
+          site={site}
+          onSave={(updatedSite) => {
+            onUpdate(updatedSite);
+            setShowEditModal(false);
+          }}
+          onClose={() => setShowEditModal(false)}
+          onDelete={() => {
+            onDelete(site.id);
+            setShowEditModal(false);
+          }}
         />
       )}
     </div>
