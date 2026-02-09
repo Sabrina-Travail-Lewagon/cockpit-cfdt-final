@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { Site } from '../types';
+import { Site, ChecklistItem, Intervention } from '../types';
 import { Button } from '../components/Button';
 import { PhpMyAdminModal } from '../components/PhpMyAdminModal';
 import { EditSiteModal } from '../components/EditSiteModal';
+import { ChecklistModal } from '../components/ChecklistModal';
+import { InterventionModal } from '../components/InterventionModal';
 import './SiteDetail.css';
 
 interface SiteDetailProps {
@@ -15,6 +17,10 @@ interface SiteDetailProps {
 export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, onDelete }) => {
   const [showPhpMyAdminModal, setShowPhpMyAdminModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showChecklistModal, setShowChecklistModal] = useState(false);
+  const [editingChecklistIndex, setEditingChecklistIndex] = useState<number | null>(null);
+  const [showInterventionModal, setShowInterventionModal] = useState(false);
+  const [editingInterventionIndex, setEditingInterventionIndex] = useState<number | null>(null);
 
   const handleToggleChecklistItem = (index: number) => {
     const updatedChecklist = [...site.checklist];
@@ -35,6 +41,92 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
     // En mode dev, juste un log
     console.log('Ouverture Dashlane:', ref);
     alert(`Dashlane CLI : ${ref}\n(Fonctionnalité disponible dans la version finale)`);
+  };
+
+  // Gestion de la checklist
+  const handleAddChecklist = () => {
+    setEditingChecklistIndex(null);
+    setShowChecklistModal(true);
+  };
+
+  const handleEditChecklist = (index: number) => {
+    setEditingChecklistIndex(index);
+    setShowChecklistModal(true);
+  };
+
+  const handleSaveChecklist = (item: ChecklistItem) => {
+    let updatedChecklist: ChecklistItem[];
+
+    if (editingChecklistIndex !== null) {
+      // Édition
+      updatedChecklist = [...site.checklist];
+      updatedChecklist[editingChecklistIndex] = item;
+    } else {
+      // Ajout
+      updatedChecklist = [...site.checklist, item];
+    }
+
+    onUpdate({
+      ...site,
+      checklist: updatedChecklist,
+      last_update: new Date().toISOString(),
+    });
+    setShowChecklistModal(false);
+  };
+
+  const handleDeleteChecklist = () => {
+    if (editingChecklistIndex === null) return;
+
+    const updatedChecklist = site.checklist.filter((_, i) => i !== editingChecklistIndex);
+    onUpdate({
+      ...site,
+      checklist: updatedChecklist,
+      last_update: new Date().toISOString(),
+    });
+    setShowChecklistModal(false);
+  };
+
+  // Gestion des interventions
+  const handleAddIntervention = () => {
+    setEditingInterventionIndex(null);
+    setShowInterventionModal(true);
+  };
+
+  const handleEditIntervention = (index: number) => {
+    setEditingInterventionIndex(index);
+    setShowInterventionModal(true);
+  };
+
+  const handleSaveIntervention = (intervention: Intervention) => {
+    let updatedInterventions: Intervention[];
+
+    if (editingInterventionIndex !== null) {
+      // Édition
+      updatedInterventions = [...site.interventions];
+      updatedInterventions[editingInterventionIndex] = intervention;
+    } else {
+      // Ajout (en début de liste pour avoir les plus récentes en premier)
+      updatedInterventions = [intervention, ...site.interventions];
+    }
+
+    onUpdate({
+      ...site,
+      interventions: updatedInterventions,
+      last_update: new Date().toISOString(),
+    });
+    setShowInterventionModal(false);
+  };
+
+  const handleDeleteIntervention = () => {
+    if (editingInterventionIndex === null) return;
+
+    const updatedInterventions = site.interventions.filter((_, i) => i !== editingInterventionIndex);
+    onUpdate({
+      ...site,
+      interventions: updatedInterventions,
+      last_update: new Date().toISOString(),
+    });
+    setShowInterventionModal(false);
   };
 
   return (
@@ -113,13 +205,23 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
           </section>
 
           <section className="detail-section">
-            <h2>📝 Journal des interventions</h2>
+            <div className="section-header">
+              <h2>📝 Journal des interventions</h2>
+              <Button variant="secondary" onClick={handleAddIntervention} icon="+">
+                Ajouter
+              </Button>
+            </div>
             {site.interventions.length === 0 ? (
               <p className="empty-message">Aucune intervention enregistrée</p>
             ) : (
               <div className="interventions-timeline">
                 {site.interventions.map((intervention, index) => (
-                  <div key={index} className="intervention-item">
+                  <div
+                    key={index}
+                    className="intervention-item clickable"
+                    onClick={() => handleEditIntervention(index)}
+                    title="Cliquer pour modifier"
+                  >
                     <div className="intervention-date">
                       {new Date(intervention.date).toLocaleDateString('fr-FR', {
                         day: '2-digit',
@@ -166,21 +268,32 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
           </section>
 
           <section className="detail-section">
-            <h2>✅ Checklist</h2>
+            <div className="section-header">
+              <h2>✅ Checklist</h2>
+              <Button variant="secondary" onClick={handleAddChecklist} icon="+">
+                Ajouter
+              </Button>
+            </div>
             {site.checklist.length === 0 ? (
               <p className="empty-message">Aucune tâche</p>
             ) : (
               <div className="checklist">
                 {site.checklist.map((item, index) => (
-                  <label key={index} className="checklist-item">
+                  <div key={index} className="checklist-item">
                     <input
                       type="checkbox"
                       checked={item.done}
                       onChange={() => handleToggleChecklistItem(index)}
                     />
-                    <span className={item.done ? 'done' : ''}>{item.task}</span>
+                    <span
+                      className={`checklist-task ${item.done ? 'done' : ''}`}
+                      onClick={() => handleEditChecklist(index)}
+                      title="Cliquer pour modifier"
+                    >
+                      {item.task}
+                    </span>
                     {item.date && <span className="checklist-date">{item.date}</span>}
-                  </label>
+                  </div>
                 ))}
               </div>
             )}
@@ -236,6 +349,24 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
             onDelete(site.id);
             setShowEditModal(false);
           }}
+        />
+      )}
+
+      {showChecklistModal && (
+        <ChecklistModal
+          item={editingChecklistIndex !== null ? site.checklist[editingChecklistIndex] : null}
+          onSave={handleSaveChecklist}
+          onDelete={editingChecklistIndex !== null ? handleDeleteChecklist : undefined}
+          onClose={() => setShowChecklistModal(false)}
+        />
+      )}
+
+      {showInterventionModal && (
+        <InterventionModal
+          intervention={editingInterventionIndex !== null ? site.interventions[editingInterventionIndex] : null}
+          onSave={handleSaveIntervention}
+          onDelete={editingInterventionIndex !== null ? handleDeleteIntervention : undefined}
+          onClose={() => setShowInterventionModal(false)}
         />
       )}
     </div>

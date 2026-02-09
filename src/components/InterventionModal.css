@@ -1,0 +1,64 @@
+.intervention-modal {
+  max-width: 600px;
+}
+
+.intervention-modal .form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.intervention-modal .form-group {
+  margin-bottom: 1rem;
+}
+
+.intervention-modal .form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.intervention-modal .form-group input,
+.intervention-modal .form-group select,
+.intervention-modal .form-group textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: inherit;
+}
+
+.intervention-modal .form-group input:focus,
+.intervention-modal .form-group select:focus,
+.intervention-modal .form-group textarea:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.1);
+}
+
+.intervention-modal .form-group textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+.intervention-modal .form-group select {
+  cursor: pointer;
+  background-color: white;
+}
+
+.intervention-modal .modal-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.intervention-modal .actions-right {
+  display: flex;
+  gap: 0.75rem;
+  margin-left: auto;
+}
