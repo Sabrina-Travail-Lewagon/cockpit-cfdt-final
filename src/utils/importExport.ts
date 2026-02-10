@@ -15,6 +15,7 @@ export function exportToExcel(data: AppData, filename: string = 'cockpit-cfdt-ex
     frontend_url: site.urls.frontend,
     backend_url: site.urls.backend,
     phpmyadmin_url: site.urls.phpmyadmin,
+    admintools_login: site.admintools_login || '',
     mysql_host: site.server.mysql_host,
     database: site.server.database,
     prefix: site.server.prefix,
@@ -136,6 +137,7 @@ export function downloadTemplate(): void {
     frontend_url: 'https://www.cfdt-exemple.fr',
     backend_url: 'https://www.cfdt-exemple.fr/administrator',
     phpmyadmin_url: 'https://phpmyadmin.server.net',
+    admintools_login: 'sectionsu',
     mysql_host: 'sqlprive-xxx.eu.clouddb.ovh.net:35315',
     database: 'cfdt-exemple',
     prefix: 'jos_',
@@ -147,7 +149,7 @@ export function downloadTemplate(): void {
     gtm_id: 'GTM-XXXXXXXX',
     cookie_solution: 'Tarteaucitron',
     looker_report_url: 'https://lookerstudio.google.com/s/xxx',
-    dashlane_backend_protection: '',
+    dashlane_backend_protection: '[CFDT-Exemple] Backend Protection',
     dashlane_joomla_admin: '[Exemple] Joomla Admin',
     dashlane_mysql_su: '[Exemple] MySQL Root',
     dashlane_mysql_std: '',
@@ -328,6 +330,7 @@ export async function importFromExcel(file: File): Promise<Site[]> {
               mysql_std: row.dashlane_mysql_std || null,
               editors: []
             },
+            admintools_login: row.admintools_login || null,
             server: {
               mysql_host: row.mysql_host || '',
               database: row.database || '',
