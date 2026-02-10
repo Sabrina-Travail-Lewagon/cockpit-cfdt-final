@@ -1,17 +1,24 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { changePassword } from '../utils/tauri';
+import { exportToExcel, downloadTemplate, importFromExcel } from '../utils/importExport';
+import { AppData, Site } from '../types';
 import './Settings.css';
 
 interface SettingsProps {
   onBack: () => void;
   onPasswordChanged: (newPassword: string) => void;
+  appData: AppData;
+  onImportSites: (sites: Site[]) => void;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged }) => {
+export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, appData, onImportSites }) => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importError, setImportError] = useState('');
+  const [importSuccess, setImportSuccess] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -51,6 +58,40 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged })
       setError(errorMessage || 'Erreur lors du changement de mot de passe');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleExport = () => {
+    exportToExcel(appData);
+  };
+
+  const handleDownloadTemplate = () => {
+    downloadTemplate();
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportError('');
+    setImportSuccess('');
+
+    try {
+      const sites = await importFromExcel(file);
+      onImportSites(sites);
+      setImportSuccess(`${sites.length} site(s) importé(s) avec succès !`);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setImportError(errorMessage || 'Erreur lors de l\'import');
+    }
+
+    // Reset le input file
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -108,6 +149,46 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged })
                 Modifier le mot de passe
               </Button>
             </form>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <h2>Import / Export</h2>
+
+          <div className="settings-card">
+            <h3>Exporter les données</h3>
+            <p className="settings-description">
+              Exportez tous vos sites et leurs informations dans un fichier Excel.
+            </p>
+            <div className="export-actions">
+              <Button variant="primary" onClick={handleExport} icon="📥">
+                Exporter vers Excel
+              </Button>
+            </div>
+          </div>
+
+          <div className="settings-card">
+            <h3>Importer des sites</h3>
+            <p className="settings-description">
+              Importez des sites depuis un fichier Excel. Les sites existants avec le même ID seront mis à jour.
+            </p>
+            <div className="import-actions">
+              <Button variant="secondary" onClick={handleDownloadTemplate} icon="📄">
+                Télécharger le modèle
+              </Button>
+              <Button variant="primary" onClick={handleImportClick} icon="📤">
+                Importer un fichier
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+              />
+            </div>
+            {importError && <p className="form-error">{importError}</p>}
+            {importSuccess && <p className="form-success">{importSuccess}</p>}
           </div>
         </section>
 

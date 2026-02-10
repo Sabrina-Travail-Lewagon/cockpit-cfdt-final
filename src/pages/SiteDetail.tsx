@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Site, ChecklistItem, Intervention, Extension } from '../types';
+import { Site, ChecklistItem, Intervention, Extension, JoomlaAccount } from '../types';
 import { Button } from '../components/Button';
 import { PhpMyAdminModal } from '../components/PhpMyAdminModal';
 import { EditSiteModal } from '../components/EditSiteModal';
 import { ChecklistModal } from '../components/ChecklistModal';
 import { InterventionModal } from '../components/InterventionModal';
 import { ExtensionModal } from '../components/ExtensionModal';
+import { JoomlaAccountModal } from '../components/JoomlaAccountModal';
 import './SiteDetail.css';
 
 interface SiteDetailProps {
@@ -24,6 +25,8 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
   const [editingInterventionIndex, setEditingInterventionIndex] = useState<number | null>(null);
   const [showExtensionModal, setShowExtensionModal] = useState(false);
   const [editingExtensionIndex, setEditingExtensionIndex] = useState<number | null>(null);
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [editingAccountIndex, setEditingAccountIndex] = useState<number | null>(null);
 
   const handleToggleChecklistItem = (index: number) => {
     const updatedChecklist = [...site.checklist];
@@ -183,6 +186,49 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
     setShowExtensionModal(false);
   };
 
+  // Gestion des comptes Joomla
+  const handleAddAccount = () => {
+    setEditingAccountIndex(null);
+    setShowAccountModal(true);
+  };
+
+  const handleEditAccount = (index: number) => {
+    setEditingAccountIndex(index);
+    setShowAccountModal(true);
+  };
+
+  const handleSaveAccount = (account: JoomlaAccount) => {
+    const accounts = site.joomla_accounts || [];
+    let updatedAccounts: JoomlaAccount[];
+
+    if (editingAccountIndex !== null) {
+      updatedAccounts = [...accounts];
+      updatedAccounts[editingAccountIndex] = account;
+    } else {
+      updatedAccounts = [...accounts, account];
+    }
+
+    onUpdate({
+      ...site,
+      joomla_accounts: updatedAccounts,
+      last_update: new Date().toISOString(),
+    });
+    setShowAccountModal(false);
+  };
+
+  const handleDeleteAccount = () => {
+    if (editingAccountIndex === null) return;
+
+    const accounts = site.joomla_accounts || [];
+    const updatedAccounts = accounts.filter((_, i) => i !== editingAccountIndex);
+    onUpdate({
+      ...site,
+      joomla_accounts: updatedAccounts,
+      last_update: new Date().toISOString(),
+    });
+    setShowAccountModal(false);
+  };
+
   // Extensions triées pour l'affichage
   const sortedExtensions = [...(site.extensions || [])].sort((a, b) => {
     if (a.critical !== b.critical) return a.critical ? -1 : 1;
@@ -329,6 +375,74 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
               </div>
             </div>
           </section>
+
+          <section className="detail-section">
+            <div className="section-header">
+              <h2>👤 Comptes Joomla</h2>
+              <Button variant="secondary" onClick={handleAddAccount} icon="+">
+                Ajouter
+              </Button>
+            </div>
+            {(!site.joomla_accounts || site.joomla_accounts.length === 0) ? (
+              <p className="empty-message">Aucun compte enregistré</p>
+            ) : (
+              <div className="accounts-list">
+                {site.joomla_accounts.map((account, index) => (
+                  <div
+                    key={index}
+                    className="account-item clickable"
+                    onClick={() => handleEditAccount(index)}
+                    title="Cliquer pour modifier"
+                  >
+                    <div className="account-username">{account.username}</div>
+                    <div className="account-role">{account.role}</div>
+                    {account.dashlane_ref && (
+                      <div className="account-dashlane">🔑 {account.dashlane_ref}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {site.analytics && (
+            <section className="detail-section">
+              <h2>📊 Analytics & Tracking</h2>
+              <div className="analytics-list">
+                {site.analytics.ga_id && (
+                  <div className="analytics-item">
+                    <div className="analytics-label">Google Analytics</div>
+                    <div className="analytics-value">{site.analytics.ga_id}</div>
+                  </div>
+                )}
+                {site.analytics.gtm_id && (
+                  <div className="analytics-item">
+                    <div className="analytics-label">Google Tag Manager</div>
+                    <div className="analytics-value">{site.analytics.gtm_id}</div>
+                  </div>
+                )}
+                {site.analytics.cookie_solution && (
+                  <div className="analytics-item">
+                    <div className="analytics-label">Cookie Consent</div>
+                    <div className="analytics-value">{site.analytics.cookie_solution}</div>
+                  </div>
+                )}
+                {site.analytics.looker_report_url && (
+                  <div className="analytics-item">
+                    <div className="analytics-label">Rapport Looker</div>
+                    <a
+                      href={site.analytics.looker_report_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="analytics-link"
+                    >
+                      Voir le rapport →
+                    </a>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
 
           <section className="detail-section">
             <div className="section-header">
@@ -502,6 +616,15 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
           onSave={handleSaveExtension}
           onDelete={editingExtensionIndex !== null ? handleDeleteExtension : undefined}
           onClose={() => setShowExtensionModal(false)}
+        />
+      )}
+
+      {showAccountModal && (
+        <JoomlaAccountModal
+          account={editingAccountIndex !== null ? (site.joomla_accounts || [])[editingAccountIndex] : null}
+          onSave={handleSaveAccount}
+          onDelete={editingAccountIndex !== null ? handleDeleteAccount : undefined}
+          onClose={() => setShowAccountModal(false)}
         />
       )}
     </div>

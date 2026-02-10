@@ -108,3 +108,14 @@
   font-size: 14px;
   margin-top: 8px !important;
 }
+
+.export-actions,
+.import-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.settings-section .settings-card + .settings-card {
+  margin-top: 16px;
+}
