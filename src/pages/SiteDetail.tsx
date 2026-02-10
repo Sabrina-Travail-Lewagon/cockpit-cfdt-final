@@ -53,14 +53,16 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
       // Copier la référence dans le presse-papier
       await navigator.clipboard.writeText(ref);
 
-      // Ouvrir Dashlane dans le navigateur par défaut
-      await open('https://app.dashlane.com/');
+      // Ouvrir Dashlane avec la recherche filtrée
+      const searchUrl = `https://app.dashlane.com/search/${encodeURIComponent(ref)}`;
+      await open(searchUrl);
 
-      console.log(`Référence "${ref}" copiée - Dashlane ouvert dans le navigateur`);
+      console.log(`Référence "${ref}" copiée - Dashlane ouvert avec recherche "${ref}"`);
     } catch (err) {
       console.error('Erreur:', err);
       // Fallback: essayer window.open si Tauri échoue
-      window.open('https://app.dashlane.com/', '_blank');
+      const searchUrl = `https://app.dashlane.com/search/${encodeURIComponent(ref)}`;
+      window.open(searchUrl, '_blank');
     }
   };
 
