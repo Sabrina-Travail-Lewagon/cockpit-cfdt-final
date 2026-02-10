@@ -11,14 +11,17 @@ interface InterventionModalProps {
 }
 
 const INTERVENTION_TYPES = [
+  'Ajout',
+  'Analytics',
+  'Backup',
+  'Correction de bug',
+  'MAJ',
+  'Migration',
   'Mise à jour Joomla',
   'Mise à jour extensions',
   'Mise à jour PHP',
-  'Correction de bug',
-  'Modification contenu',
+  'Modification',
   'Nouveau module',
-  'Sauvegarde',
-  'Migration',
   'Optimisation',
   'Sécurité',
   'Autre',
