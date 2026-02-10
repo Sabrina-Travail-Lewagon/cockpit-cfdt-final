@@ -51,6 +51,7 @@ export const AddSiteModal: React.FC<AddSiteModalProps> = ({ onAdd, onClose }) =>
         mysql_std: null,
         editors: [],
       },
+      admintools_login: null,
       server: {
         mysql_host: '',
         database: '',

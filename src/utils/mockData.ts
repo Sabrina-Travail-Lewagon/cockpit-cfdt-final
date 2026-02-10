@@ -21,6 +21,7 @@ export function getMockData(): AppData {
         mysql_std: '[ULog] MySQL Standard',
         editors: ['[ULog] Éditeur 1', '[ULog] Éditeur 2'],
       },
+      admintools_login: 'sectionsu',
       server: {
         mysql_host: 'mysql.vps1.ovh.net:3306',
         database: 'cfdt_ulog',
@@ -99,6 +100,7 @@ export function getMockData(): AppData {
         mysql_std: null,
         editors: ['[Transport] Rédacteur'],
       },
+      admintools_login: null,
       server: {
         mysql_host: 'mysql.vps2.ovh.net:3306',
         database: 'cfdt_transport',
@@ -158,6 +160,7 @@ export function getMockData(): AppData {
         mysql_std: '[Santé] MySQL App',
         editors: ['[Santé] Éditeur Principal'],
       },
+      admintools_login: 'sectionsu',
       server: {
         mysql_host: 'mysql.vps1.ovh.net:3306',
         database: 'cfdt_sante',
@@ -240,6 +243,7 @@ export function getMockData(): AppData {
         mysql_std: null,
         editors: [],
       },
+      admintools_login: null,
       server: {
         mysql_host: 'mysql.vps3.ovh.net:3306',
         database: 'cfdt_metal',

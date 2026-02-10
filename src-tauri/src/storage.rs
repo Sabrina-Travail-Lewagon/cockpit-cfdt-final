@@ -48,7 +48,11 @@ pub struct Site {
     
     /// Références vers les credentials Dashlane
     pub dashlane_refs: DashlaneRefs,
-    
+
+    /// Login AdminTools protection backend
+    #[serde(default)]
+    pub admintools_login: Option<String>,
+
     /// Informations serveur
     pub server: ServerInfo,
     
@@ -399,6 +403,7 @@ mod tests {
                 mysql_std: None,
                 editors: vec![],
             },
+            admintools_login: Some("sectionsu".to_string()),
             server: ServerInfo {
                 mysql_host: "localhost:3306".to_string(),
                 database: "test_db".to_string(),

@@ -30,6 +30,8 @@ export const EditSiteModal: React.FC<EditSiteModalProps> = ({
     joomlaVersion: site.tech.joomla_version,
     phpVersion: site.tech.php_version,
     template: site.tech.template,
+    admintoolsLogin: site.admintools_login || '',
+    backendProtection: site.dashlane_refs.backend_protection || '',
     joomlaAdmin: site.dashlane_refs.joomla_admin,
     mysqlSu: site.dashlane_refs.mysql_su,
     notes: site.notes,
@@ -53,6 +55,7 @@ export const EditSiteModal: React.FC<EditSiteModalProps> = ({
         backend: formData.backendUrl,
         phpmyadmin: formData.phpmyadminUrl,
       },
+      admintools_login: formData.admintoolsLogin || null,
       server: {
         mysql_host: formData.mysqlHost,
         database: formData.database,
@@ -66,6 +69,7 @@ export const EditSiteModal: React.FC<EditSiteModalProps> = ({
       },
       dashlane_refs: {
         ...site.dashlane_refs,
+        backend_protection: formData.backendProtection || null,
         joomla_admin: formData.joomlaAdmin,
         mysql_su: formData.mysqlSu,
       },
@@ -183,6 +187,24 @@ export const EditSiteModal: React.FC<EditSiteModalProps> = ({
               value={formData.template}
               onChange={(e) => handleChange('template', e.target.value)}
               placeholder="Ex: Helix Ultimate"
+            />
+          </div>
+
+          <div className="form-section">
+            <h3>🛡️ Protection Backend (AdminTools)</h3>
+
+            <Input
+              label="Login AdminTools"
+              value={formData.admintoolsLogin}
+              onChange={(e) => handleChange('admintoolsLogin', e.target.value)}
+              placeholder="Ex: sectionsu"
+            />
+
+            <Input
+              label="Référence Dashlane Backend Protection"
+              value={formData.backendProtection}
+              onChange={(e) => handleChange('backendProtection', e.target.value)}
+              placeholder="Ex: [CFDT-O2] Backend Protection"
             />
           </div>
 

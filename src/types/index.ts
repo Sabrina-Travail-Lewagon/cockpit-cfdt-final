@@ -12,6 +12,7 @@ export interface Site {
   enabled: boolean;
   urls: SiteUrls;
   dashlane_refs: DashlaneRefs;
+  admintools_login: string | null;
   server: ServerInfo;
   tech: TechInfo;
   analytics: AnalyticsInfo | null;

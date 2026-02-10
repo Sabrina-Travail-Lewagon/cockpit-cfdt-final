@@ -292,6 +292,35 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
             </div>
           </section>
 
+          {(site.admintools_login || site.dashlane_refs.backend_protection) && (
+            <section className="detail-section protection-section">
+              <h2>🛡️ Protection Backend (AdminTools)</h2>
+              <div className="protection-grid">
+                {site.admintools_login && (
+                  <div className="protection-item">
+                    <span className="protection-label">Login</span>
+                    <span className="protection-value">{site.admintools_login}</span>
+                  </div>
+                )}
+                {site.dashlane_refs.backend_protection && (
+                  <div className="protection-item with-action">
+                    <div className="protection-info">
+                      <span className="protection-label">📂 Dashlane</span>
+                      <span className="protection-value">{site.dashlane_refs.backend_protection}</span>
+                    </div>
+                    <button
+                      className="dashlane-btn"
+                      onClick={() => openDashlane(site.dashlane_refs.backend_protection!)}
+                      title="Copier et ouvrir Dashlane"
+                    >
+                      🔑
+                    </button>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
           <section className="detail-section">
             <h2>🗄️ Base de données</h2>
             <div className="db-grid">
