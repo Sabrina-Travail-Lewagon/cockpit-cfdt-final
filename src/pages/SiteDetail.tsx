@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { open } from '@tauri-apps/api/shell';
 import { Site, ChecklistItem, Intervention, Extension, JoomlaAccount } from '../types';
 import { Button } from '../components/Button';
 import { PhpMyAdminModal } from '../components/PhpMyAdminModal';
@@ -52,14 +53,13 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
       // Copier la référence dans le presse-papier
       await navigator.clipboard.writeText(ref);
 
-      // Ouvrir Dashlane web vault
-      window.open('https://app.dashlane.com/', '_blank');
+      // Ouvrir Dashlane dans le navigateur par défaut
+      await open('https://app.dashlane.com/');
 
-      // Notification de succès (optionnel)
-      console.log(`Référence "${ref}" copiée dans le presse-papier`);
+      console.log(`Référence "${ref}" copiée - Dashlane ouvert dans le navigateur`);
     } catch (err) {
-      console.error('Erreur lors de la copie:', err);
-      // Fallback: ouvrir quand même Dashlane
+      console.error('Erreur:', err);
+      // Fallback: essayer window.open si Tauri échoue
       window.open('https://app.dashlane.com/', '_blank');
     }
   };
