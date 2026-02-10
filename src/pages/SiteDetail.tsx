@@ -43,10 +43,25 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
     });
   };
 
-  const openDashlaneUrl = (ref: string) => {
-    // En mode dev, juste un log
-    console.log('Ouverture Dashlane:', ref);
-    alert(`Dashlane CLI : ${ref}\n(Fonctionnalité disponible dans la version finale)`);
+  const openDashlane = async (ref: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation(); // Empêche l'ouverture du modal d'édition
+    }
+
+    try {
+      // Copier la référence dans le presse-papier
+      await navigator.clipboard.writeText(ref);
+
+      // Ouvrir Dashlane web vault
+      window.open('https://app.dashlane.com/', '_blank');
+
+      // Notification de succès (optionnel)
+      console.log(`Référence "${ref}" copiée dans le presse-papier`);
+    } catch (err) {
+      console.error('Erreur lors de la copie:', err);
+      // Fallback: ouvrir quand même Dashlane
+      window.open('https://app.dashlane.com/', '_blank');
+    }
   };
 
   // Gestion de la checklist
@@ -303,13 +318,15 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
                 Connexion guidée phpMyAdmin
               </Button>
               
-              <Button
-                variant="secondary"
-                onClick={() => openDashlaneUrl(site.dashlane_refs.mysql_su)}
-                icon="🔑"
-              >
-                Credentials MySQL (Dashlane)
-              </Button>
+              {site.dashlane_refs.mysql_su && (
+                <Button
+                  variant="secondary"
+                  onClick={() => openDashlane(site.dashlane_refs.mysql_su)}
+                  icon="🔑"
+                >
+                  MySQL → Dashlane
+                </Button>
+              )}
             </div>
           </section>
 
@@ -394,10 +411,18 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
                     onClick={() => handleEditAccount(index)}
                     title="Cliquer pour modifier"
                   >
-                    <div className="account-username">{account.username}</div>
-                    <div className="account-role">{account.role}</div>
+                    <div className="account-info">
+                      <div className="account-username">{account.username}</div>
+                      <div className="account-role">{account.role}</div>
+                    </div>
                     {account.dashlane_ref && (
-                      <div className="account-dashlane">🔑 {account.dashlane_ref}</div>
+                      <button
+                        className="dashlane-btn"
+                        onClick={(e) => openDashlane(account.dashlane_ref!, e)}
+                        title={`Ouvrir Dashlane (${account.dashlane_ref})`}
+                      >
+                        🔑
+                      </button>
                     )}
                   </div>
                 ))}
