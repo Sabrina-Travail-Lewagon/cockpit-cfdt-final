@@ -58,6 +58,10 @@ pub struct Site {
     /// Analytics
     pub analytics: Option<AnalyticsInfo>,
 
+    /// Comptes Joomla additionnels
+    #[serde(default)]
+    pub joomla_accounts: Vec<JoomlaAccount>,
+
     /// Extensions Joomla installées
     #[serde(default)]
     pub extensions: Vec<Extension>,
@@ -118,6 +122,18 @@ pub struct TechInfo {
 pub struct AnalyticsInfo {
     pub ga_id: Option<String>,
     pub gtm_id: Option<String>,
+    #[serde(default)]
+    pub cookie_solution: Option<String>,
+    #[serde(default)]
+    pub looker_report_url: Option<String>,
+}
+
+/// Compte Joomla additionnel
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct JoomlaAccount {
+    pub username: String,
+    pub role: String,
+    pub dashlane_ref: Option<String>,
 }
 
 /// Extension Joomla
@@ -395,6 +411,7 @@ mod tests {
                 template: "Helix".to_string(),
             },
             analytics: None,
+            joomla_accounts: vec![],
             extensions: vec![],
             checklist: vec![],
             interventions: vec![],

@@ -99,6 +99,33 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     setSelectedSiteId(null); // Retourner à la liste
   };
 
+  const handleImportSites = (importedSites: Site[]) => {
+    // Fusionner les sites importés avec les existants
+    // Les sites avec le même ID sont mis à jour, les nouveaux sont ajoutés
+    const existingSiteIds = new Set(appData.sites.map(s => s.id));
+    const sitesToUpdate: Site[] = [];
+    const sitesToAdd: Site[] = [];
+
+    importedSites.forEach(site => {
+      if (existingSiteIds.has(site.id)) {
+        sitesToUpdate.push(site);
+      } else {
+        sitesToAdd.push(site);
+      }
+    });
+
+    const updatedSites = appData.sites.map(existing => {
+      const updated = sitesToUpdate.find(s => s.id === existing.id);
+      return updated || existing;
+    });
+
+    const updatedData = {
+      ...appData,
+      sites: [...updatedSites, ...sitesToAdd],
+    };
+    onDataChange(updatedData);
+  };
+
   return (
     <div className="main-layout">
       <Sidebar
@@ -117,6 +144,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           <Settings
             onBack={() => setShowSettings(false)}
             onPasswordChanged={onPasswordChanged}
+            appData={appData}
+            onImportSites={handleImportSites}
           />
         ) : selectedSite ? (
           <SiteDetail

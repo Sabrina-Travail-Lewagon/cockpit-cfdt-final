@@ -15,12 +15,19 @@ export interface Site {
   server: ServerInfo;
   tech: TechInfo;
   analytics: AnalyticsInfo | null;
+  joomla_accounts: JoomlaAccount[];
   extensions: Extension[];
   checklist: ChecklistItem[];
   interventions: Intervention[];
   contacts: Contact[];
   notes: string;
   last_update: string;
+}
+
+export interface JoomlaAccount {
+  username: string;
+  role: string;
+  dashlane_ref: string | null;
 }
 
 export interface Extension {
@@ -59,6 +66,8 @@ export interface TechInfo {
 export interface AnalyticsInfo {
   ga_id: string | null;
   gtm_id: string | null;
+  cookie_solution: string | null;
+  looker_report_url: string | null;
 }
 
 export interface ChecklistItem {

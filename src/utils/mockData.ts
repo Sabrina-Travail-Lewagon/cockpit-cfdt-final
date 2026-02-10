@@ -33,9 +33,16 @@ export function getMockData(): AppData {
         template: 'Helix Ultimate',
       },
       analytics: {
-        ga_id: 'UA-12345678-1',
-        gtm_id: 'GTM-XXXXXXX',
+        ga_id: 'G-1BW025Z89J',
+        gtm_id: 'GTM-5HW7T884',
+        cookie_solution: 'Tarteaucitron',
+        looker_report_url: 'https://lookerstudio.google.com/s/oDWshSBmPag',
       },
+      joomla_accounts: [
+        { username: 'admin', role: 'Super Administrateur', dashlane_ref: '[ULog] Joomla Super Admin' },
+        { username: 'editeur1', role: 'Éditeur', dashlane_ref: '[ULog] Éditeur 1' },
+        { username: 'editeur2', role: 'Éditeur', dashlane_ref: '[ULog] Éditeur 2' },
+      ],
       extensions: [
         { name: 'Akeeba Backup', version: '10.2.2', critical: true },
         { name: 'AdminTools', version: '7.8.5', critical: true },
@@ -104,6 +111,9 @@ export function getMockData(): AppData {
         template: 'Cassiopeia',
       },
       analytics: null,
+      joomla_accounts: [
+        { username: 'admin', role: 'Super Administrateur', dashlane_ref: '[Transport] Joomla Admin' },
+      ],
       extensions: [
         { name: 'Akeeba Backup', version: '9.8.1', critical: true },
         { name: 'Regular Sourcerer', version: null, critical: false },
@@ -162,7 +172,13 @@ export function getMockData(): AppData {
       analytics: {
         ga_id: null,
         gtm_id: 'GTM-ABC123',
+        cookie_solution: 'Tarteaucitron',
+        looker_report_url: null,
       },
+      joomla_accounts: [
+        { username: 'admin', role: 'Super Administrateur', dashlane_ref: '[Santé] Joomla Super Admin' },
+        { username: 'webmaster', role: 'Webmaster', dashlane_ref: '[Santé] Éditeur Principal' },
+      ],
       extensions: [
         { name: 'Akeeba Backup', version: '10.2.2', critical: true },
         { name: 'AdminTools', version: '7.8.5', critical: true },
@@ -236,6 +252,7 @@ export function getMockData(): AppData {
         template: 'Protostar',
       },
       analytics: null,
+      joomla_accounts: [],
       extensions: [],
       checklist: [],
       interventions: [
