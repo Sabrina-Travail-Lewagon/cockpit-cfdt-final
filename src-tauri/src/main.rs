@@ -139,6 +139,13 @@ fn set_data_location(new_path: String, state: State<AppState>) -> Result<(), Str
 }
 
 #[tauri::command]
+fn list_backups(state: State<AppState>) -> Result<Vec<String>, String> {
+    let storage_guard = state.storage_manager.lock().unwrap();
+    let storage = storage_guard.as_ref().ok_or("Storage non initialisé")?;
+    storage.list_backups().map_err(|e| format!("Erreur: {}", e))
+}
+
+#[tauri::command]
 fn restore_backup(backup_name: String, state: State<AppState>) -> Result<(), String> {
     let storage_guard = state.storage_manager.lock().unwrap();
     let storage = storage_guard.as_ref().ok_or("Storage non initialisé")?;
@@ -147,28 +154,6 @@ fn restore_backup(backup_name: String, state: State<AppState>) -> Result<(), Str
         .map_err(|e| format!("Erreur: {}", e))?;
     *state.app_data.lock().unwrap() = None;
     *state.is_locked.lock().unwrap() = true;
-    Ok(())
-}
-
-#[tauri::command]
-fn change_password(
-    old_password: String,
-    new_password: String,
-    state: State<AppState>,
-) -> Result<(), String> {
-    let storage_guard = state.storage_manager.lock().unwrap();
-    let storage = storage_guard.as_ref().ok_or("Storage non initialisé")?;
-
-    // Vérifier l'ancien mot de passe en chargeant les données
-    let data = storage
-        .load(&old_password)
-        .map_err(|_| "Ancien mot de passe incorrect")?;
-
-    // Sauvegarder avec le nouveau mot de passe
-    storage
-        .save(&data, &new_password, true)
-        .map_err(|e| format!("Erreur: {}", e))?;
-
     Ok(())
 }
 
