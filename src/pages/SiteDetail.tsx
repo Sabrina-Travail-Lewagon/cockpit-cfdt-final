@@ -53,16 +53,21 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
       // Copier la référence dans le presse-papier
       await navigator.clipboard.writeText(ref);
 
-      // Ouvrir Dashlane avec la recherche filtrée
-      const searchUrl = `https://app.dashlane.com/search/${encodeURIComponent(ref)}`;
-      await open(searchUrl);
+      // Ouvrir Dashlane Web
+      const dashlaneUrl = 'https://app.dashlane.com/';
+      await open(dashlaneUrl);
 
-      console.log(`Référence "${ref}" copiée - Dashlane ouvert avec recherche "${ref}"`);
+      // Afficher les instructions
+      console.log(`✅ Référence "${ref}" copiée dans le presse-papier`);
+      console.log(`💡 Dans Dashlane, utilisez Ctrl+F pour ouvrir la recherche, puis Ctrl+V pour coller`);
+      
+      // Notification visuelle temporaire
+      alert(`✅ Référence copiée : "${ref}"\n\n💡 Dans Dashlane :\n1. Appuyez sur Ctrl+F pour ouvrir la recherche\n2. Collez avec Ctrl+V`);
     } catch (err) {
       console.error('Erreur:', err);
       // Fallback: essayer window.open si Tauri échoue
-      const searchUrl = `https://app.dashlane.com/search/${encodeURIComponent(ref)}`;
-      window.open(searchUrl, '_blank');
+      window.open('https://app.dashlane.com/', '_blank');
+      alert(`✅ Référence copiée : "${ref}"\n\n💡 Dans Dashlane :\n1. Appuyez sur Ctrl+F pour ouvrir la recherche\n2. Collez avec Ctrl+V`);
     }
   };
 
