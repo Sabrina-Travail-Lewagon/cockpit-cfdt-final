@@ -49,6 +49,10 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
       e.stopPropagation(); // Empêche l'ouverture du modal d'édition
     }
 
+    // Détecter le système d'exploitation pour adapter les raccourcis
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    const modKey = isMac ? 'Cmd' : 'Ctrl';
+
     try {
       // Copier la référence dans le presse-papier
       await navigator.clipboard.writeText(ref);
@@ -59,15 +63,15 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
 
       // Afficher les instructions
       console.log(`✅ Référence "${ref}" copiée dans le presse-papier`);
-      console.log(`💡 Dans Dashlane, utilisez Ctrl+F pour ouvrir la recherche, puis Ctrl+V pour coller`);
+      console.log(`💡 Dans Dashlane, utilisez ${modKey}+F pour ouvrir la recherche, puis ${modKey}+V pour coller`);
       
       // Notification visuelle temporaire
-      alert(`✅ Référence copiée : "${ref}"\n\n💡 Dans Dashlane :\n1. Appuyez sur Ctrl+F pour ouvrir la recherche\n2. Collez avec Ctrl+V`);
+      alert(`✅ Référence copiée : "${ref}"\n\n💡 Dans Dashlane :\n1. Appuyez sur ${modKey}+F pour ouvrir la recherche\n2. Collez avec ${modKey}+V`);
     } catch (err) {
       console.error('Erreur:', err);
       // Fallback: essayer window.open si Tauri échoue
       window.open('https://app.dashlane.com/', '_blank');
-      alert(`✅ Référence copiée : "${ref}"\n\n💡 Dans Dashlane :\n1. Appuyez sur Ctrl+F pour ouvrir la recherche\n2. Collez avec Ctrl+V`);
+      alert(`✅ Référence copiée : "${ref}"\n\n💡 Dans Dashlane :\n1. Appuyez sur ${modKey}+F pour ouvrir la recherche\n2. Collez avec ${modKey}+V`);
     }
   };
 
