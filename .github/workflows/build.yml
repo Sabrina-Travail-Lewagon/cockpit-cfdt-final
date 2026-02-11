@@ -83,6 +83,7 @@ jobs:
           name: ${{ matrix.platform.artifact_name }}
           path: |
             src-tauri/target/release/bundle/macos/
+            src-tauri/target/release/bundle/dmg/
 
       - name: Upload artifacts (Windows)
         if: matrix.platform.os == 'windows-latest'

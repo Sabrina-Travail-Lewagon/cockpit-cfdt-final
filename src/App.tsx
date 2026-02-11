@@ -108,12 +108,45 @@ async function getAppDirectory(): Promise<string> {
 
   if (import.meta.env.DEV) {
     // Mode développement : utiliser un dossier temp
-    return '/tmp/cockpit-cfdt-dev';
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    return isMac ? '/tmp/cockpit-cfdt-dev' : 'C:\\temp\\cockpit-cfdt-dev';
   }
 
-  // Mode production : utiliser le dossier AppData de Tauri
-  // Le backend Rust créera les dossiers nécessaires
   const pathModule = await import('@tauri-apps/api/path');
+  const fsModule = await import('@tauri-apps/api/fs');
+  
+  // Détecter le mode portable : chercher un fichier .portable à côté de l'exe/app
+  try {
+    // Sur macOS : l'app est dans un bundle .app, on cherche à côté du bundle
+    // Sur Windows : l'exe est dans le dossier racine
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    
+    let portableBasePath: string;
+    if (isMac) {
+      // Sur macOS, remonter de Contents/MacOS vers le dossier parent du .app
+      const resourcePath = await pathModule.resourceDir();
+      const appPath = await pathModule.dirname(await pathModule.dirname(await pathModule.dirname(resourcePath)));
+      portableBasePath = await pathModule.dirname(appPath);
+    } else {
+      // Sur Windows, utiliser le dossier de l'exécutable
+      portableBasePath = await pathModule.resourceDir();
+    }
+    
+    const portableMarkerPath = await pathModule.join(portableBasePath, '.portable');
+    
+    // Vérifier si le marqueur portable existe
+    const isPortable = await fsModule.exists(portableMarkerPath);
+    
+    if (isPortable) {
+      console.log('Mode portable détecté');
+      console.log('Portable path:', portableBasePath);
+      return portableBasePath;
+    }
+  } catch (error) {
+    console.log('Pas en mode portable, utilisation AppData:', error);
+  }
+
+  // Mode installation classique : utiliser le dossier AppData de Tauri
   const appDataPath = await pathModule.appDataDir();
   console.log('AppData path:', appDataPath);
   return appDataPath;
