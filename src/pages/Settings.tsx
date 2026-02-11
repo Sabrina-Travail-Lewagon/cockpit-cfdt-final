@@ -1,8 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
-import { changePassword } from '../utils/tauri';
+import { changePassword, getDataLocation, setDataLocation } from '../utils/tauri';
 import { exportToExcel, downloadTemplate, importFromExcel } from '../utils/importExport';
+import { open } from '@tauri-apps/api/dialog';
 import { AppData, Site } from '../types';
 import './Settings.css';
 
@@ -23,6 +24,24 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // Gestion de l'emplacement des données
+  const [dataLocation, setDataLocationState] = useState<string>('');
+  const [storageError, setStorageError] = useState('');
+  const [storageSuccess, setStorageSuccess] = useState('');
+
+  // Charger l'emplacement actuel au montage
+  useEffect(() => {
+    async function loadDataLocation() {
+      try {
+        const location = await getDataLocation();
+        setDataLocationState(location);
+      } catch (err) {
+        console.error('Erreur chargement emplacement:', err);
+      }
+    }
+    loadDataLocation();
+  }, []);
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,6 +111,30 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
     // Reset le input file
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+  };
+
+  const handleChooseDataLocation = async () => {
+    setStorageError('');
+    setStorageSuccess('');
+
+    try {
+      // Ouvrir le dialogue pour choisir un dossier
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Choisir l\'emplacement de stockage des données',
+      });
+
+      if (selected && typeof selected === 'string') {
+        // Mettre à jour l'emplacement
+        await setDataLocation(selected);
+        setDataLocationState(selected);
+        setStorageSuccess('Emplacement modifié ! Redémarrez l\'application pour appliquer les changements.');
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setStorageError(errorMessage || 'Erreur lors du changement d\'emplacement');
     }
   };
 
@@ -189,6 +232,47 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
             </div>
             {importError && <p className="form-error">{importError}</p>}
             {importSuccess && <p className="form-success">{importSuccess}</p>}
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <h2>Stockage</h2>
+
+          <div className="settings-card">
+            <h3>Emplacement des données</h3>
+            <p className="settings-description">
+              Choisissez où stocker vos données. Vous pouvez utiliser un SSD USB pour synchroniser vos données entre plusieurs PC.
+            </p>
+            
+            <div className="storage-info">
+              <p><strong>Emplacement actuel :</strong></p>
+              <code className="storage-path">{dataLocation || 'Chargement...'}</code>
+            </div>
+
+            <div className="storage-actions">
+              <Button variant="primary" onClick={handleChooseDataLocation} icon="📁">
+                Choisir un nouvel emplacement
+              </Button>
+            </div>
+
+            {storageError && <p className="form-error">{storageError}</p>}
+            {storageSuccess && (
+              <div className="form-success">
+                <p>{storageSuccess}</p>
+                <p className="storage-warning">
+                  ⚠️ Important : Les données existantes ne seront pas déplacées automatiquement. Vous devrez copier manuellement le dossier "data" vers le nouvel emplacement.
+                </p>
+              </div>
+            )}
+
+            <div className="storage-tips">
+              <h4>💡 Conseils :</h4>
+              <ul>
+                <li><strong>SSD USB :</strong> Idéal pour utiliser l'application sur plusieurs PC (Windows et Mac)</li>
+                <li><strong>Disque local :</strong> Plus rapide, mais données uniquement sur ce PC</li>
+                <li><strong>Sécurité :</strong> Chiffrez votre SSD USB avec BitLocker (Windows) ou FileVault (Mac)</li>
+              </ul>
+            </div>
           </div>
         </section>
 

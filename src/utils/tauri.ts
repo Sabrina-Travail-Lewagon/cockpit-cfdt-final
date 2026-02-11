@@ -71,3 +71,17 @@ export async function restoreBackup(backupName: string): Promise<void> {
 export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
   return await invoke('change_password', { oldPassword, newPassword });
 }
+
+/**
+ * Récupère l'emplacement actuel des données
+ */
+export async function getDataLocation(): Promise<string> {
+  return await invoke<string>('get_data_location');
+}
+
+/**
+ * Change l'emplacement des données
+ */
+export async function setDataLocation(newPath: string): Promise<void> {
+  return await invoke('set_data_location', { newPath });
+}

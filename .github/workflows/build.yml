@@ -85,14 +85,23 @@ jobs:
             src-tauri/target/release/bundle/macos/
             src-tauri/target/release/bundle/dmg/
 
+      - name: List Windows build artifacts
+        if: matrix.platform.os == 'windows-latest'
+        run: |
+          echo "=== Contenu de target/release ==="
+          dir src-tauri\target\release\
+          echo "=== Contenu de bundle ==="
+          dir src-tauri\target\release\bundle\
+        shell: cmd
+
       - name: Upload artifacts (Windows)
         if: matrix.platform.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform.artifact_name }}
           path: |
-            src-tauri/target/release/bundle/msi/
-            src-tauri/target/release/cockpit-cfdt.exe
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/*.exe
 
       - name: Upload artifacts (Linux)
         if: matrix.platform.os == 'ubuntu-latest'

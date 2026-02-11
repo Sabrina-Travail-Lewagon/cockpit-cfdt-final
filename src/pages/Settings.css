@@ -119,3 +119,76 @@
 .settings-section .settings-card + .settings-card {
   margin-top: 16px;
 }
+
+/* Stockage */
+.storage-info {
+  margin: 16px 0;
+  padding: 16px;
+  background: var(--gray-50);
+  border-radius: 8px;
+}
+
+.storage-info p {
+  margin: 0 0 8px 0;
+  color: var(--gray-700);
+  font-size: 14px;
+}
+
+.storage-path {
+  display: block;
+  padding: 12px;
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: var(--gray-900);
+  word-break: break-all;
+}
+
+.storage-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.storage-warning {
+  margin-top: 12px !important;
+  padding: 12px;
+  background: #fff7ed;
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+  color: #92400e !important;
+  font-size: 13px;
+}
+
+.storage-tips {
+  margin-top: 24px;
+  padding: 16px;
+  background: #eff6ff;
+  border-radius: 8px;
+  border-left: 3px solid #3b82f6;
+}
+
+.storage-tips h4 {
+  margin: 0 0 12px 0;
+  color: var(--gray-900);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.storage-tips ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.storage-tips li {
+  color: var(--gray-700);
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.storage-tips li strong {
+  color: var(--gray-900);
+}

@@ -4,9 +4,9 @@
 
 use crate::crypto::{CryptoEngine, EncryptedData};
 use serde::{Deserialize, Serialize};
+use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::error::Error;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Résultat d'une opération de storage
@@ -17,7 +17,7 @@ pub type StorageResult<T> = Result<T, Box<dyn Error>>;
 pub struct AppData {
     /// Liste de tous les sites CFDT
     pub sites: Vec<Site>,
-    
+
     /// Paramètres de l'application
     pub settings: AppSettings,
 }
@@ -36,16 +36,16 @@ impl Default for AppData {
 pub struct Site {
     /// Identifiant unique (ex: "cfdt-ulogistique")
     pub id: String,
-    
+
     /// Nom d'affichage (ex: "CFDT Ulogistique")
     pub name: String,
-    
+
     /// Site actif ou archivé
     pub enabled: bool,
-    
+
     /// URLs d'accès
     pub urls: SiteUrls,
-    
+
     /// Références vers les credentials Dashlane
     pub dashlane_refs: DashlaneRefs,
 
@@ -55,10 +55,10 @@ pub struct Site {
 
     /// Informations serveur
     pub server: ServerInfo,
-    
+
     /// Informations techniques
     pub tech: TechInfo,
-    
+
     /// Analytics
     pub analytics: Option<AnalyticsInfo>,
 
@@ -72,16 +72,16 @@ pub struct Site {
 
     /// Checklist de tâches
     pub checklist: Vec<ChecklistItem>,
-    
+
     /// Journal des interventions
     pub interventions: Vec<Intervention>,
-    
+
     /// Contacts
     pub contacts: Vec<Contact>,
-    
+
     /// Notes libres
     pub notes: String,
-    
+
     /// Date de dernière modification
     pub last_update: String,
 }
@@ -180,13 +180,13 @@ pub struct Contact {
 pub struct AppSettings {
     /// Auto-lock après X minutes d'inactivité
     pub auto_lock_minutes: u32,
-    
+
     /// Backup automatique avant modification
     pub auto_backup: bool,
-    
+
     /// Nombre de jours de rétention des backups
     pub backup_keep_days: u32,
-    
+
     /// Chemin vers Dashlane CLI (ou "auto")
     pub dashlane_cli_path: String,
 }
@@ -210,51 +210,56 @@ pub struct StorageManager {
 
 impl StorageManager {
     /// Crée un nouveau gestionnaire de stockage
-    /// 
+    ///
     /// # Arguments
     /// * `app_dir` - Répertoire de l'application (ex: /FluentApp/data)
     pub fn new(app_dir: &Path) -> StorageResult<Self> {
         let data_path = app_dir.join("sites.encrypted");
         let backup_path = app_dir.join("backups");
-        
+
         // Créer le dossier backups s'il n'existe pas
         if !backup_path.exists() {
             fs::create_dir_all(&backup_path)?;
         }
-        
+
         Ok(Self {
             data_path,
             backup_path,
         })
     }
-    
+
     /// Vérifie si le fichier de données existe
     pub fn exists(&self) -> bool {
         self.data_path.exists()
     }
-    
+
+    /// Récupère le répertoire des données
+    pub fn get_data_dir(&self) -> &Path {
+        self.data_path.parent().unwrap_or(Path::new("."))
+    }
+
     /// Charge les données depuis le fichier chiffré
-    /// 
+    ///
     /// # Arguments
     /// * `password` - Mot de passe maître
     pub fn load(&self, password: &str) -> StorageResult<AppData> {
         // Lire le fichier
         let encrypted_json = fs::read_to_string(&self.data_path)?;
-        
+
         // Parser le JSON des métadonnées de chiffrement
         let encrypted: EncryptedData = serde_json::from_str(&encrypted_json)?;
-        
+
         // Déchiffrer
         let decrypted_json = CryptoEngine::decrypt(&encrypted, password)?;
-        
+
         // Parser les données de l'app
         let app_data: AppData = serde_json::from_str(&decrypted_json)?;
-        
+
         Ok(app_data)
     }
-    
+
     /// Sauvegarde les données dans le fichier chiffré
-    /// 
+    ///
     /// # Arguments
     /// * `data` - Données de l'application
     /// * `password` - Mot de passe maître
@@ -264,35 +269,35 @@ impl StorageManager {
         if create_backup && self.exists() {
             self.create_backup()?;
         }
-        
+
         // Sérialiser les données en JSON
         let json = serde_json::to_string_pretty(data)?;
-        
+
         // Chiffrer
         let encrypted = CryptoEngine::encrypt(&json, password)?;
-        
+
         // Sérialiser les métadonnées de chiffrement
         let encrypted_json = serde_json::to_string_pretty(&encrypted)?;
-        
+
         // Écrire dans le fichier
         fs::write(&self.data_path, encrypted_json)?;
-        
+
         Ok(())
     }
-    
+
     /// Crée un fichier de données initial (première utilisation)
     pub fn initialize(&self, password: &str) -> StorageResult<()> {
         let initial_data = AppData::default();
         self.save(&initial_data, password, false)?;
         Ok(())
     }
-    
+
     /// Crée un backup du fichier actuel
     fn create_backup(&self) -> StorageResult<()> {
         if !self.exists() {
             return Ok(());
         }
-        
+
         // Nom du backup avec timestamp
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -300,21 +305,21 @@ impl StorageManager {
             .as_secs();
         let backup_name = format!("sites-{}.encrypted", timestamp);
         let backup_file = self.backup_path.join(backup_name);
-        
+
         // Copier le fichier
         fs::copy(&self.data_path, &backup_file)?;
-        
+
         Ok(())
     }
-    
+
     /// Liste les backups disponibles
     pub fn list_backups(&self) -> StorageResult<Vec<String>> {
         let mut backups = Vec::new();
-        
+
         if !self.backup_path.exists() {
             return Ok(backups);
         }
-        
+
         for entry in fs::read_dir(&self.backup_path)? {
             let entry = entry?;
             if let Some(name) = entry.file_name().to_str() {
@@ -323,42 +328,42 @@ impl StorageManager {
                 }
             }
         }
-        
+
         // Trier par ordre décroissant (plus récent en premier)
         backups.sort_by(|a, b| b.cmp(a));
-        
+
         Ok(backups)
     }
-    
+
     /// Restaure depuis un backup
     pub fn restore_backup(&self, backup_name: &str) -> StorageResult<()> {
         let backup_file = self.backup_path.join(backup_name);
-        
+
         if !backup_file.exists() {
             return Err("Backup introuvable".into());
         }
-        
+
         // Créer un backup du fichier actuel avant restauration
         if self.exists() {
             self.create_backup()?;
         }
-        
+
         // Copier le backup
         fs::copy(&backup_file, &self.data_path)?;
-        
+
         Ok(())
     }
-    
+
     /// Nettoie les vieux backups (garde les N plus récents)
     pub fn cleanup_old_backups(&self, keep_count: usize) -> StorageResult<()> {
         let backups = self.list_backups()?;
-        
+
         // Supprimer les backups au-delà de keep_count
         for backup in backups.iter().skip(keep_count) {
             let backup_file = self.backup_path.join(backup);
             fs::remove_file(backup_file)?;
         }
-        
+
         Ok(())
     }
 }
@@ -373,18 +378,18 @@ mod tests {
         // Créer un dossier temporaire pour les tests
         let temp_dir = env::temp_dir().join("fluent_app_test");
         let _ = fs::create_dir_all(&temp_dir);
-        
+
         let storage = StorageManager::new(&temp_dir).unwrap();
         let password = "test_password_123";
-        
+
         // Initialiser
         storage.initialize(password).unwrap();
         assert!(storage.exists());
-        
+
         // Charger
         let data = storage.load(password).unwrap();
         assert_eq!(data.sites.len(), 0);
-        
+
         // Ajouter un site
         let mut data = data;
         data.sites.push(Site {
@@ -424,15 +429,15 @@ mod tests {
             notes: String::new(),
             last_update: chrono::Local::now().to_rfc3339(),
         });
-        
+
         // Sauvegarder
         storage.save(&data, password, false).unwrap();
-        
+
         // Recharger
         let loaded = storage.load(password).unwrap();
         assert_eq!(loaded.sites.len(), 1);
         assert_eq!(loaded.sites[0].name, "Site de Test");
-        
+
         // Nettoyage
         let _ = fs::remove_dir_all(&temp_dir);
     }
