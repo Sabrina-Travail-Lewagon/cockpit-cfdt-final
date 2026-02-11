@@ -85,3 +85,10 @@ export async function getDataLocation(): Promise<string> {
 export async function setDataLocation(newPath: string): Promise<void> {
   return await invoke('set_data_location', { newPath });
 }
+
+/**
+ * Récupère l'emplacement personnalisé des données depuis la config
+ */
+export async function getCustomDataLocation(configDir: string): Promise<string | null> {
+  return await invoke<string | null>('get_custom_data_location', { configDir });
+}

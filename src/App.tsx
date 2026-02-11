@@ -115,6 +115,9 @@ async function getAppDirectory(): Promise<string> {
   const pathModule = await import('@tauri-apps/api/path');
   const fsModule = await import('@tauri-apps/api/fs');
   
+  // Déterminer d'abord le dossier de config (où chercher config.json)
+  let configDir: string;
+  
   // Détecter le mode portable : chercher un fichier .portable à côté de l'exe/app
   try {
     // Sur macOS : l'app est dans un bundle .app, on cherche à côté du bundle
@@ -140,16 +143,32 @@ async function getAppDirectory(): Promise<string> {
     if (isPortable) {
       console.log('Mode portable détecté');
       console.log('Portable path:', portableBasePath);
-      return portableBasePath;
+      configDir = portableBasePath;
+    } else {
+      // Mode installation classique
+      configDir = await pathModule.appDataDir();
     }
   } catch (error) {
     console.log('Pas en mode portable, utilisation AppData:', error);
+    configDir = await pathModule.appDataDir();
   }
 
-  // Mode installation classique : utiliser le dossier AppData de Tauri
-  const appDataPath = await pathModule.appDataDir();
-  console.log('AppData path:', appDataPath);
-  return appDataPath;
+  // Vérifier s'il y a un emplacement personnalisé dans la config
+  try {
+    const { getCustomDataLocation } = await import('./utils/tauri');
+    const customLocation = await getCustomDataLocation(configDir);
+    
+    if (customLocation) {
+      console.log('Emplacement personnalisé trouvé:', customLocation);
+      return customLocation;
+    }
+  } catch (error) {
+    console.log('Pas d\'emplacement personnalisé:', error);
+  }
+
+  // Utiliser l'emplacement par défaut
+  console.log('Utilisation de l\'emplacement par défaut:', configDir);
+  return configDir;
 }
 
 export default App;

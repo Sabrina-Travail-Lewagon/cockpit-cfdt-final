@@ -3,7 +3,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use cockpit_cfdt::{AppData, StorageManager};
+use cockpit_cfdt::{AppData, ConfigManager, StorageManager};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::State;
@@ -12,7 +12,7 @@ pub struct AppState {
     storage_manager: Mutex<Option<StorageManager>>,
     app_data: Mutex<Option<AppData>>,
     is_locked: Mutex<bool>,
-    data_location: Mutex<Option<PathBuf>>,
+    config_manager: Mutex<Option<ConfigManager>>,
 }
 
 impl AppState {
@@ -21,7 +21,7 @@ impl AppState {
             storage_manager: Mutex::new(None),
             app_data: Mutex::new(None),
             is_locked: Mutex::new(true),
-            data_location: Mutex::new(None),
+            config_manager: Mutex::new(None),
         }
     }
 }
@@ -32,6 +32,11 @@ fn initialize_storage(app_dir: String, state: State<AppState>) -> Result<bool, S
     let storage = StorageManager::new(&path).map_err(|e| format!("Erreur: {}", e))?;
     let exists = storage.exists();
     *state.storage_manager.lock().unwrap() = Some(storage);
+
+    // Initialiser le ConfigManager avec le même répertoire
+    let config = ConfigManager::new(&path).map_err(|e| format!("Erreur config: {}", e))?;
+    *state.config_manager.lock().unwrap() = Some(config);
+
     Ok(exists)
 }
 
@@ -123,18 +128,76 @@ fn get_data_location(state: State<AppState>) -> Result<String, String> {
 
 #[tauri::command]
 fn set_data_location(new_path: String, state: State<AppState>) -> Result<(), String> {
-    let path = PathBuf::from(&new_path);
+    use std::fs;
+
+    let new_dir = PathBuf::from(&new_path);
 
     // Vérifier que le dossier existe
-    if !path.exists() {
+    if !new_dir.exists() {
         return Err(format!("Le dossier '{}' n'existe pas", new_path));
     }
 
-    // Sauvegarder le nouvel emplacement dans l'état
-    *state.data_location.lock().unwrap() = Some(path.clone());
+    // Récupérer l'ancien emplacement
+    let storage_guard = state.storage_manager.lock().unwrap();
+    let storage = storage_guard.as_ref().ok_or("Storage non initialisé")?;
+    let old_dir = storage.get_data_dir().to_path_buf();
 
-    // Note: L'emplacement sera utilisé au prochain démarrage
-    // Il faudrait idéalement le sauvegarder dans un fichier de config
+    // Vérifier que ce n'est pas le même dossier
+    if old_dir == new_dir {
+        return Err("Le nouvel emplacement est identique à l'ancien".to_string());
+    }
+
+    drop(storage_guard); // Libérer le lock
+
+    // Déplacer sites.encrypted s'il existe
+    let old_data_file = old_dir.join("sites.encrypted");
+    let new_data_file = new_dir.join("sites.encrypted");
+
+    if old_data_file.exists() {
+        fs::copy(&old_data_file, &new_data_file)
+            .map_err(|e| format!("Erreur lors de la copie de sites.encrypted: {}", e))?;
+    }
+
+    // Déplacer le dossier backups s'il existe
+    let old_backup_dir = old_dir.join("backups");
+    let new_backup_dir = new_dir.join("backups");
+
+    if old_backup_dir.exists() {
+        // Créer le dossier backups dans le nouveau dossier
+        if !new_backup_dir.exists() {
+            fs::create_dir_all(&new_backup_dir)
+                .map_err(|e| format!("Erreur lors de la création du dossier backups: {}", e))?;
+        }
+
+        // Copier tous les fichiers de backup
+        for entry in fs::read_dir(&old_backup_dir)
+            .map_err(|e| format!("Erreur lors de la lecture des backups: {}", e))?
+        {
+            let entry = entry.map_err(|e| format!("Erreur: {}", e))?;
+            let file_name = entry.file_name();
+            let old_file = old_backup_dir.join(&file_name);
+            let new_file = new_backup_dir.join(&file_name);
+
+            if old_file.is_file() {
+                fs::copy(&old_file, &new_file).map_err(|e| {
+                    format!(
+                        "Erreur lors de la copie de {}: {}",
+                        file_name.to_string_lossy(),
+                        e
+                    )
+                })?;
+            }
+        }
+    }
+
+    // Sauvegarder le nouvel emplacement dans la config
+    let config_guard = state.config_manager.lock().unwrap();
+    if let Some(config) = config_guard.as_ref() {
+        config
+            .set_custom_data_location(Some(new_path))
+            .map_err(|e| format!("Erreur lors de la sauvegarde de la config: {}", e))?;
+    }
+
     Ok(())
 }
 
@@ -157,6 +220,17 @@ fn restore_backup(backup_name: String, state: State<AppState>) -> Result<(), Str
     Ok(())
 }
 
+#[tauri::command]
+fn get_custom_data_location(config_dir: String) -> Result<Option<String>, String> {
+    let path = PathBuf::from(&config_dir);
+    let config = ConfigManager::new(&path)
+        .map_err(|e| format!("Erreur lors de l'initialisation de la config: {}", e))?;
+
+    config
+        .get_custom_data_location()
+        .map_err(|e| format!("Erreur lors de la lecture de la config: {}", e))
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(AppState::new())
@@ -173,6 +247,7 @@ fn main() {
             change_password,
             get_data_location,
             set_data_location,
+            get_custom_data_location,
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors du lancement de l'application");
