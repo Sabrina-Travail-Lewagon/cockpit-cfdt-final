@@ -368,15 +368,28 @@ fn wait_with_timeout(
     child: &mut std::process::Child,
     timeout: Duration,
 ) -> Result<std::process::Output, String> {
+    use std::io::Read;
+
     let start = std::time::Instant::now();
     let poll_interval = Duration::from_millis(100);
 
     loop {
         match child.try_wait() {
-            Ok(Some(_status)) => {
-                return child
-                    .wait_with_output()
-                    .map_err(|e| format!("Erreur lecture sortie enpass-cli: {}", e));
+            Ok(Some(status)) => {
+                // Le process est termine, lire stdout et stderr
+                let mut stdout = Vec::new();
+                let mut stderr = Vec::new();
+                if let Some(ref mut out) = child.stdout {
+                    let _ = out.read_to_end(&mut stdout);
+                }
+                if let Some(ref mut err) = child.stderr {
+                    let _ = err.read_to_end(&mut stderr);
+                }
+                return Ok(std::process::Output {
+                    status,
+                    stdout,
+                    stderr,
+                });
             }
             Ok(None) => {
                 if start.elapsed() >= timeout {
