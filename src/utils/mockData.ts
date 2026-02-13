@@ -14,7 +14,7 @@ export function getMockData(): AppData {
         backend: 'https://cfdt-ulogistique.fr/administrator',
         phpmyadmin: 'https://phpmyadmin.vps1.ovh.net',
       },
-      dashlane_refs: {
+      enpass_refs: {
         backend_protection: '[ULog] Protection Admin',
         joomla_admin: '[ULog] Joomla Super Admin',
         mysql_su: '[ULog] MySQL Root',
@@ -40,9 +40,9 @@ export function getMockData(): AppData {
         looker_report_url: 'https://lookerstudio.google.com/s/oDWshSBmPag',
       },
       joomla_accounts: [
-        { username: 'admin', role: 'Super Administrateur', dashlane_ref: '[ULog] Joomla Super Admin' },
-        { username: 'editeur1', role: 'Éditeur', dashlane_ref: '[ULog] Éditeur 1' },
-        { username: 'editeur2', role: 'Éditeur', dashlane_ref: '[ULog] Éditeur 2' },
+        { username: 'admin', role: 'Super Administrateur', enpass_ref: '[ULog] Joomla Super Admin' },
+        { username: 'editeur1', role: 'Éditeur', enpass_ref: '[ULog] Éditeur 1' },
+        { username: 'editeur2', role: 'Éditeur', enpass_ref: '[ULog] Éditeur 2' },
       ],
       extensions: [
         { name: 'Akeeba Backup', version: '10.2.2', critical: true },
@@ -93,7 +93,7 @@ export function getMockData(): AppData {
         backend: 'https://cfdt-transport-reunion.re/administrator',
         phpmyadmin: 'https://phpmyadmin.vps2.ovh.net',
       },
-      dashlane_refs: {
+      enpass_refs: {
         backend_protection: null,
         joomla_admin: '[Transport] Joomla Admin',
         mysql_su: '[Transport] MySQL Root',
@@ -114,7 +114,7 @@ export function getMockData(): AppData {
       },
       analytics: null,
       joomla_accounts: [
-        { username: 'admin', role: 'Super Administrateur', dashlane_ref: '[Transport] Joomla Admin' },
+        { username: 'admin', role: 'Super Administrateur', enpass_ref: '[Transport] Joomla Admin' },
       ],
       extensions: [
         { name: 'Akeeba Backup', version: '9.8.1', critical: true },
@@ -153,7 +153,7 @@ export function getMockData(): AppData {
         backend: 'https://cfdt-sante-sociaux.fr/admin',
         phpmyadmin: 'https://phpmyadmin.vps1.ovh.net',
       },
-      dashlane_refs: {
+      enpass_refs: {
         backend_protection: '[Santé] Htpasswd Admin',
         joomla_admin: '[Santé] Joomla Super Admin',
         mysql_su: '[Santé] MySQL Root',
@@ -179,8 +179,8 @@ export function getMockData(): AppData {
         looker_report_url: null,
       },
       joomla_accounts: [
-        { username: 'admin', role: 'Super Administrateur', dashlane_ref: '[Santé] Joomla Super Admin' },
-        { username: 'webmaster', role: 'Webmaster', dashlane_ref: '[Santé] Éditeur Principal' },
+        { username: 'admin', role: 'Super Administrateur', enpass_ref: '[Santé] Joomla Super Admin' },
+        { username: 'webmaster', role: 'Webmaster', enpass_ref: '[Santé] Éditeur Principal' },
       ],
       extensions: [
         { name: 'Akeeba Backup', version: '10.2.2', critical: true },
@@ -236,7 +236,7 @@ export function getMockData(): AppData {
         backend: 'https://cfdt-metallurgie-archive.fr/administrator',
         phpmyadmin: 'https://phpmyadmin.vps3.ovh.net',
       },
-      dashlane_refs: {
+      enpass_refs: {
         backend_protection: null,
         joomla_admin: '[Métallurgie] Joomla Admin',
         mysql_su: '[Métallurgie] MySQL Root',
@@ -280,7 +280,9 @@ export function getMockData(): AppData {
       auto_lock_minutes: 5,
       auto_backup: true,
       backup_keep_days: 30,
-      dashlane_cli_path: 'auto',
+      enpass_cli_path: 'auto',
+      enpass_vault_path: '',
+      enpass_use_separate_password: false,
     },
   };
 }

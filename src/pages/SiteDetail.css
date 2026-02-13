@@ -490,8 +490,14 @@
   color: var(--gray-600);
 }
 
-/* Bouton Dashlane */
-.dashlane-btn {
+/* Boutons Enpass */
+.enpass-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.enpass-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -501,20 +507,90 @@
   border-radius: var(--radius-sm);
   background: var(--primary-100);
   color: var(--primary-700);
-  font-size: 18px;
+  font-size: 16px;
   cursor: pointer;
   transition: all var(--transition-fast);
   flex-shrink: 0;
 }
 
-.dashlane-btn:hover {
+.enpass-btn:hover:not(:disabled) {
   background: var(--primary-500);
   color: white;
   transform: scale(1.05);
 }
 
-.dashlane-btn:active {
+.enpass-btn:active:not(:disabled) {
   transform: scale(0.95);
+}
+
+.enpass-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.enpass-db-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Toast Enpass (notification fixe en haut) */
+.enpass-toast {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 1000;
+  padding: 12px 20px;
+  border-radius: var(--radius-md, 8px);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: toastSlideIn 0.3s ease;
+  max-width: 400px;
+}
+
+.enpass-toast.success {
+  background: var(--success-100, #dcfce7);
+  color: var(--success-700, #15803d);
+  border: 1px solid var(--success-200, #bbf7d0);
+}
+
+.enpass-toast.error {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Ancien style gardé pour compatibilité */
+.enpass-status {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+
+.enpass-status.success {
+  background: var(--success-100);
+  color: var(--success-700);
+  border: 1px solid var(--success-200);
+}
+
+.enpass-status.error {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
 }
 
 /* Analytics */
