@@ -20,7 +20,7 @@ tauri-build = { version = "1.5", features = [] }
 
 [dependencies]
 # Tauri - Framework desktop
-tauri = { version = "1.5", features = [ "fs-read-dir", "dialog-open", "fs-read-file", "fs-write-file", "fs-remove-file", "fs-create-dir", "dialog-save", "fs-exists", "shell-open"] }
+tauri = { version = "1.5", features = [ "fs-read-dir", "dialog-open", "fs-read-file", "fs-write-file", "fs-remove-file", "fs-create-dir", "dialog-save", "fs-exists", "shell-open", "path-all"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
