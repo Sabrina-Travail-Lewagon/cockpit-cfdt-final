@@ -47,24 +47,24 @@ export const PhpMyAdminModal: React.FC<PhpMyAdminModalProps> = ({ site, onClose 
     },
     {
       number: 2,
-      title: 'Récupérer les credentials',
+      title: 'Recuperer les credentials',
       content: (
         <div>
-          <p>Ouvrez Dashlane et récupérez les identifiants MySQL :</p>
+          <p>Recuperez les identifiants MySQL depuis Enpass :</p>
           <div className="credential-item">
-            <div className="credential-label">Référence Dashlane</div>
+            <div className="credential-label">Reference Enpass</div>
             <div className="code-block">
-              <code>{site.dashlane_refs.mysql_su}</code>
+              <code>{site.enpass_refs.mysql_su}</code>
               <button
                 className="copy-button"
-                onClick={() => copyToClipboard(site.dashlane_refs.mysql_su, 'dashlane')}
+                onClick={() => copyToClipboard(site.enpass_refs.mysql_su, 'enpass')}
               >
-                {copied === 'dashlane' ? '✓ Copié' : '📋 Copier'}
+                {copied === 'enpass' ? '✓ Copie' : '📋 Copier'}
               </button>
             </div>
           </div>
           <div className="info-box">
-            <strong>💡 Astuce :</strong> Utilisez Dashlane CLI pour copier automatiquement le mot de passe dans le clipboard
+            <strong>💡 Astuce :</strong> Utilisez les boutons 👤 et 🔑 sur la page du site pour copier automatiquement le login et le mot de passe depuis Enpass
           </div>
         </div>
       ),
@@ -102,11 +102,11 @@ export const PhpMyAdminModal: React.FC<PhpMyAdminModalProps> = ({ site, onClose 
             </div>
             <div className="connection-field">
               <span className="field-label">Utilisateur</span>
-              <div className="info-text">Récupéré depuis Dashlane (étape 2)</div>
+              <div className="info-text">Recupere depuis Enpass (etape 2)</div>
             </div>
             <div className="connection-field">
               <span className="field-label">Mot de passe</span>
-              <div className="info-text">Récupéré depuis Dashlane (étape 2)</div>
+              <div className="info-text">Recupere depuis Enpass (etape 2)</div>
             </div>
           </div>
           <div className="success-box">

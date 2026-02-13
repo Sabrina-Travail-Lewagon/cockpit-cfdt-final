@@ -31,9 +31,9 @@ export const EditSiteModal: React.FC<EditSiteModalProps> = ({
     phpVersion: site.tech.php_version,
     template: site.tech.template,
     admintoolsLogin: site.admintools_login || '',
-    backendProtection: site.dashlane_refs.backend_protection || '',
-    joomlaAdmin: site.dashlane_refs.joomla_admin,
-    mysqlSu: site.dashlane_refs.mysql_su,
+    backendProtection: site.enpass_refs.backend_protection || '',
+    joomlaAdmin: site.enpass_refs.joomla_admin,
+    mysqlSu: site.enpass_refs.mysql_su,
     notes: site.notes,
   });
 
@@ -67,8 +67,8 @@ export const EditSiteModal: React.FC<EditSiteModalProps> = ({
         php_version: formData.phpVersion,
         template: formData.template,
       },
-      dashlane_refs: {
-        ...site.dashlane_refs,
+      enpass_refs: {
+        ...site.enpass_refs,
         backend_protection: formData.backendProtection || null,
         joomla_admin: formData.joomlaAdmin,
         mysql_su: formData.mysqlSu,
@@ -201,7 +201,7 @@ export const EditSiteModal: React.FC<EditSiteModalProps> = ({
             />
 
             <Input
-              label="Référence Dashlane Backend Protection"
+              label="Ref Enpass Backend Protection"
               value={formData.backendProtection}
               onChange={(e) => handleChange('backendProtection', e.target.value)}
               placeholder="Ex: [CFDT-O2] Backend Protection"
@@ -209,20 +209,20 @@ export const EditSiteModal: React.FC<EditSiteModalProps> = ({
           </div>
 
           <div className="form-section">
-            <h3>Références Dashlane</h3>
+            <h3>🔐 References Enpass</h3>
 
             <Input
               label="Joomla Admin"
               value={formData.joomlaAdmin}
               onChange={(e) => handleChange('joomlaAdmin', e.target.value)}
-              placeholder="Nom de l'entrée Dashlane"
+              placeholder="Nom de l'entree Enpass"
             />
 
             <Input
               label="MySQL Super User"
               value={formData.mysqlSu}
               onChange={(e) => handleChange('mysqlSu', e.target.value)}
-              placeholder="Nom de l'entrée Dashlane"
+              placeholder="Nom de l'entree Enpass"
             />
           </div>
 

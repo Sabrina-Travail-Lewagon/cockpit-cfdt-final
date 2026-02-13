@@ -1,4 +1,4 @@
-// Types TypeScript pour Fluent App
+// Types TypeScript pour Cockpit CFDT
 // Correspondent exactement aux structures Rust dans storage.rs
 
 export interface AppData {
@@ -11,7 +11,7 @@ export interface Site {
   name: string;
   enabled: boolean;
   urls: SiteUrls;
-  dashlane_refs: DashlaneRefs;
+  enpass_refs: EnpassRefs;
   admintools_login: string | null;
   server: ServerInfo;
   tech: TechInfo;
@@ -28,7 +28,7 @@ export interface Site {
 export interface JoomlaAccount {
   username: string;
   role: string;
-  dashlane_ref: string | null;
+  enpass_ref: string | null;
 }
 
 export interface Extension {
@@ -43,12 +43,28 @@ export interface SiteUrls {
   phpmyadmin: string;
 }
 
-export interface DashlaneRefs {
+export interface EnpassRefs {
   backend_protection: string | null;
   joomla_admin: string;
   mysql_su: string;
   mysql_std: string | null;
   editors: string[];
+}
+
+// Resultat d'une commande enpass-cli
+export interface EnpassEntry {
+  title: string;
+  username: string;
+  password: string;
+  url: string;
+  note: string;
+}
+
+// Statut d'une operation enpass-cli
+export interface EnpassResult {
+  success: boolean;
+  message: string;
+  data?: string;
 }
 
 export interface ServerInfo {
@@ -96,7 +112,9 @@ export interface AppSettings {
   auto_lock_minutes: number;
   auto_backup: boolean;
   backup_keep_days: number;
-  dashlane_cli_path: string;
+  enpass_cli_path: string;
+  enpass_vault_path: string;
+  enpass_use_separate_password: boolean;
 }
 
 // Types pour l'état de l'application

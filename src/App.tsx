@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppData, AppStatus } from './types';
 import { initializeStorage, isLocked, saveData, lock } from './utils/tauri';
 import { UnlockScreen } from './pages/UnlockScreen';
@@ -9,23 +9,32 @@ function App() {
   const [status, setStatus] = useState<AppStatus>('initializing');
   const [appData, setAppData] = useState<AppData | null>(null);
   const [dataFileExists, setDataFileExists] = useState(false);
-  const [password, setPassword] = useState<string>(''); // Garder le mot de passe pour sauvegarder
-  const [initError, setInitError] = useState<string>(''); // Erreur d'initialisation
+  const [password, setPassword] = useState<string>('');
+  const [initError, setInitError] = useState<string>('');
+
+  // Ref pour eviter les stale closures sur le password
+  const passwordRef = useRef<string>('');
+  // Ref pour le timer de debounce
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref pour eviter les sauvegardes concurrentes
+  const isSavingRef = useRef(false);
+
+  // Sync passwordRef avec le state
+  useEffect(() => {
+    passwordRef.current = password;
+  }, [password]);
 
   useEffect(() => {
     async function init() {
       try {
-        // Déterminer le dossier de l'app (mode portable)
         console.log('Initialisation...');
         const appDir = await getAppDirectory();
         console.log('Dossier app:', appDir);
 
-        // Initialiser le storage
         const exists = await initializeStorage(appDir);
-        console.log('Storage initialisé, fichier existe:', exists);
+        console.log('Storage initialise, fichier existe:', exists);
         setDataFileExists(exists);
 
-        // Vérifier si verrouillé
         const locked = await isLocked();
         setStatus(locked ? 'locked' : 'unlocked');
       } catch (error) {
@@ -39,38 +48,58 @@ function App() {
     init();
   }, []);
 
+  // Cleanup du timer au demontage
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, []);
+
   const handleUnlock = (data: AppData, pwd: string) => {
     setAppData(data);
-    setPassword(pwd); // Stocker le mot de passe pour les sauvegardes
+    setPassword(pwd);
     setStatus('unlocked');
   };
 
   const handleLock = async () => {
     try {
-      await lock(); // Appeler le backend pour verrouiller
+      await lock();
     } catch (error) {
       console.error('Erreur verrouillage:', error);
     }
     setAppData(null);
-    setPassword(''); // Effacer le mot de passe de la mémoire
+    setPassword('');
     setStatus('locked');
   };
 
-  // Sauvegarder les données quand elles changent
+  // Sauvegarder les donnees avec debounce (500ms) pour eviter les ecritures excessives
   const handleDataChange = useCallback(async (newData: AppData) => {
     setAppData(newData);
 
-    // Sauvegarder dans le fichier chiffré
-    if (password) {
+    // Annuler le timer precedent
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+
+    // Debounce: sauvegarder apres 500ms d'inactivite
+    saveTimerRef.current = setTimeout(async () => {
+      const currentPassword = passwordRef.current;
+      if (!currentPassword) return;
+      if (isSavingRef.current) return;
+
+      isSavingRef.current = true;
       try {
-        await saveData(password, newData);
-        console.log('Données sauvegardées');
+        await saveData(currentPassword, newData);
+        console.log('Donnees sauvegardees');
       } catch (error) {
         console.error('Erreur sauvegarde:', error);
-        // TODO: Afficher une notification d'erreur à l'utilisateur
+      } finally {
+        isSavingRef.current = false;
       }
-    }
-  }, [password]);
+    }, 500);
+  }, []);
 
   if (status === 'initializing') {
     return (
@@ -91,61 +120,62 @@ function App() {
     );
   }
 
+  if (!appData) {
+    return (
+      <div className="app-loading">
+        <div className="loading-spinner"></div>
+        <p>Chargement des donnees...</p>
+      </div>
+    );
+  }
+
   return (
     <MainLayout
-      appData={appData!}
+      appData={appData}
       onDataChange={handleDataChange}
       onLock={handleLock}
       onPasswordChanged={setPassword}
+      password={password}
     />
   );
 }
 
 // Utilitaire pour obtenir le dossier de l'application
 async function getAppDirectory(): Promise<string> {
-  // En mode portable, on utilise le dossier où se trouve l'exécutable
-  // Pour le développement, on utilise un dossier temporaire
-
   if (import.meta.env.DEV) {
-    // Mode développement : utiliser un dossier temp
-    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    // Mode developpement
+    const platform = navigator.userAgent.toLowerCase();
+    const isMac = platform.includes('mac');
     return isMac ? '/tmp/cockpit-cfdt-dev' : 'C:\\temp\\cockpit-cfdt-dev';
   }
 
   const pathModule = await import('@tauri-apps/api/path');
   const fsModule = await import('@tauri-apps/api/fs');
   
-  // Déterminer d'abord le dossier de config (où chercher config.json)
   let configDir: string;
   
-  // Détecter le mode portable : chercher un fichier .portable à côté de l'exe/app
   try {
-    // Sur macOS : l'app est dans un bundle .app, on cherche à côté du bundle
-    // Sur Windows : l'exe est dans le dossier racine
-    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    const platform = navigator.userAgent.toLowerCase();
+    const isMac = platform.includes('mac');
     
     let portableBasePath: string;
     if (isMac) {
-      // Sur macOS, remonter de Contents/MacOS vers le dossier parent du .app
       const resourcePath = await pathModule.resourceDir();
       const appPath = await pathModule.dirname(await pathModule.dirname(await pathModule.dirname(resourcePath)));
       portableBasePath = await pathModule.dirname(appPath);
     } else {
-      // Sur Windows, utiliser le dossier de l'exécutable
       portableBasePath = await pathModule.resourceDir();
     }
     
     const portableMarkerPath = await pathModule.join(portableBasePath, '.portable');
     
-    // Vérifier si le marqueur portable existe
     const isPortable = await fsModule.exists(portableMarkerPath);
     
     if (isPortable) {
-      console.log('Mode portable détecté');
+      console.log('Mode portable detecte');
       console.log('Portable path:', portableBasePath);
       configDir = portableBasePath;
     } else {
-      // Mode installation classique
       configDir = await pathModule.appDataDir();
     }
   } catch (error) {
@@ -153,21 +183,19 @@ async function getAppDirectory(): Promise<string> {
     configDir = await pathModule.appDataDir();
   }
 
-  // Vérifier s'il y a un emplacement personnalisé dans la config
   try {
     const { getCustomDataLocation } = await import('./utils/tauri');
     const customLocation = await getCustomDataLocation(configDir);
     
     if (customLocation) {
-      console.log('Emplacement personnalisé trouvé:', customLocation);
+      console.log('Emplacement personnalise trouve:', customLocation);
       return customLocation;
     }
   } catch (error) {
-    console.log('Pas d\'emplacement personnalisé:', error);
+    console.log('Pas d\'emplacement personnalise:', error);
   }
 
-  // Utiliser l'emplacement par défaut
-  console.log('Utilisation de l\'emplacement par défaut:', configDir);
+  console.log('Utilisation de l\'emplacement par defaut:', configDir);
   return configDir;
 }
 

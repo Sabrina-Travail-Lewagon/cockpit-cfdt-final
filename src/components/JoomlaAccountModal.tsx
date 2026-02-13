@@ -30,13 +30,13 @@ export const JoomlaAccountModal: React.FC<JoomlaAccountModalProps> = ({
 }) => {
   const [username, setUsername] = useState('');
   const [role, setRole] = useState('Éditeur');
-  const [dashlaneRef, setDashlaneRef] = useState('');
+  const [enpassRef, setEnpassRef] = useState('');
 
   useEffect(() => {
     if (account) {
       setUsername(account.username);
       setRole(account.role);
-      setDashlaneRef(account.dashlane_ref || '');
+      setEnpassRef(account.enpass_ref || '');
     }
   }, [account]);
 
@@ -47,7 +47,7 @@ export const JoomlaAccountModal: React.FC<JoomlaAccountModalProps> = ({
     onSave({
       username: username.trim(),
       role,
-      dashlane_ref: dashlaneRef.trim() || null,
+      enpass_ref: enpassRef.trim() || null,
     });
   };
 
@@ -90,13 +90,13 @@ export const JoomlaAccountModal: React.FC<JoomlaAccountModalProps> = ({
           </div>
 
           <div className="form-group">
-            <label htmlFor="dashlane">Référence Dashlane (optionnel)</label>
+            <label htmlFor="enpass">Reference Enpass (optionnel)</label>
             <input
-              id="dashlane"
+              id="enpass"
               type="text"
-              value={dashlaneRef}
-              onChange={(e) => setDashlaneRef(e.target.value)}
-              placeholder="Ex: [Site] Éditeur 1"
+              value={enpassRef}
+              onChange={(e) => setEnpassRef(e.target.value)}
+              placeholder="Ex: [Site] Editeur 1"
             />
           </div>
 

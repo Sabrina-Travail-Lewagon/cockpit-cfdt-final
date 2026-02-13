@@ -1,6 +1,6 @@
 // src-tauri/src/storage.rs
-// Module de stockage sécurisé pour Cockpit CFDT
-// Gère la lecture/écriture du fichier sites.encrypted
+// Module de stockage securise pour Cockpit CFDT
+// Gere la lecture/ecriture du fichier sites.encrypted
 
 use crate::crypto::{CryptoEngine, EncryptedData};
 use serde::{Deserialize, Serialize};
@@ -9,16 +9,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Résultat d'une opération de storage
-pub type StorageResult<T> = Result<T, Box<dyn Error>>;
+/// Resultat d'une operation de storage
+pub type StorageResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
-/// Structure complète des données de l'application
+/// Structure complete des donnees de l'application
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AppData {
     /// Liste de tous les sites CFDT
     pub sites: Vec<Site>,
 
-    /// Paramètres de l'application
+    /// Parametres de l'application
     pub settings: AppSettings,
 }
 
@@ -31,7 +31,7 @@ impl Default for AppData {
     }
 }
 
-/// Représentation d'un site CFDT
+/// Representation d'un site CFDT
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Site {
     /// Identifiant unique (ex: "cfdt-ulogistique")
@@ -40,14 +40,15 @@ pub struct Site {
     /// Nom d'affichage (ex: "CFDT Ulogistique")
     pub name: String,
 
-    /// Site actif ou archivé
+    /// Site actif ou archive
     pub enabled: bool,
 
-    /// URLs d'accès
+    /// URLs d'acces
     pub urls: SiteUrls,
 
-    /// Références vers les credentials Dashlane
-    pub dashlane_refs: DashlaneRefs,
+    /// References vers les credentials Enpass
+    #[serde(alias = "dashlane_refs")]
+    pub enpass_refs: EnpassRefs,
 
     /// Login AdminTools protection backend
     #[serde(default)]
@@ -66,11 +67,11 @@ pub struct Site {
     #[serde(default)]
     pub joomla_accounts: Vec<JoomlaAccount>,
 
-    /// Extensions Joomla installées
+    /// Extensions Joomla installees
     #[serde(default)]
     pub extensions: Vec<Extension>,
 
-    /// Checklist de tâches
+    /// Checklist de taches
     pub checklist: Vec<ChecklistItem>,
 
     /// Journal des interventions
@@ -82,7 +83,7 @@ pub struct Site {
     /// Notes libres
     pub notes: String,
 
-    /// Date de dernière modification
+    /// Date de derniere modification
     pub last_update: String,
 }
 
@@ -94,9 +95,9 @@ pub struct SiteUrls {
     pub phpmyadmin: String,
 }
 
-/// Références Dashlane
+/// References Enpass
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct DashlaneRefs {
+pub struct EnpassRefs {
     pub backend_protection: Option<String>,
     pub joomla_admin: String,
     pub mysql_su: String,
@@ -137,7 +138,8 @@ pub struct AnalyticsInfo {
 pub struct JoomlaAccount {
     pub username: String,
     pub role: String,
-    pub dashlane_ref: Option<String>,
+    #[serde(alias = "dashlane_ref")]
+    pub enpass_ref: Option<String>,
 }
 
 /// Extension Joomla
@@ -175,20 +177,28 @@ pub struct Contact {
     pub phone: Option<String>,
 }
 
-/// Paramètres de l'application
+/// Parametres de l'application
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AppSettings {
-    /// Auto-lock après X minutes d'inactivité
+    /// Auto-lock apres X minutes d'inactivite
     pub auto_lock_minutes: u32,
 
     /// Backup automatique avant modification
     pub auto_backup: bool,
 
-    /// Nombre de jours de rétention des backups
+    /// Nombre de jours de retention des backups
     pub backup_keep_days: u32,
 
-    /// Chemin vers Dashlane CLI (ou "auto")
-    pub dashlane_cli_path: String,
+    /// Chemin vers enpass-cli (ou "auto")
+    pub enpass_cli_path: String,
+
+    /// Chemin vers le vault Enpass
+    #[serde(default)]
+    pub enpass_vault_path: String,
+
+    /// Utiliser un mot de passe Enpass distinct du mot de passe maitre Cockpit
+    #[serde(default)]
+    pub enpass_use_separate_password: bool,
 }
 
 impl Default for AppSettings {
@@ -197,7 +207,9 @@ impl Default for AppSettings {
             auto_lock_minutes: 5,
             auto_backup: true,
             backup_keep_days: 30,
-            dashlane_cli_path: "auto".to_string(),
+            enpass_cli_path: "auto".to_string(),
+            enpass_vault_path: String::new(),
+            enpass_use_separate_password: false,
         }
     }
 }
@@ -209,15 +221,15 @@ pub struct StorageManager {
 }
 
 impl StorageManager {
-    /// Crée un nouveau gestionnaire de stockage
+    /// Cree un nouveau gestionnaire de stockage
     ///
     /// # Arguments
-    /// * `app_dir` - Répertoire de l'application (ex: /FluentApp/data)
+    /// * `app_dir` - Repertoire de l'application
     pub fn new(app_dir: &Path) -> StorageResult<Self> {
         let data_path = app_dir.join("sites.encrypted");
         let backup_path = app_dir.join("backups");
 
-        // Créer le dossier backups s'il n'existe pas
+        // Creer le dossier backups s'il n'existe pas
         if !backup_path.exists() {
             fs::create_dir_all(&backup_path)?;
         }
@@ -228,71 +240,69 @@ impl StorageManager {
         })
     }
 
-    /// Vérifie si le fichier de données existe
+    /// Verifie si le fichier de donnees existe
     pub fn exists(&self) -> bool {
         self.data_path.exists()
     }
 
-    /// Récupère le répertoire des données
+    /// Recupere le repertoire des donnees
     pub fn get_data_dir(&self) -> &Path {
         self.data_path.parent().unwrap_or(Path::new("."))
     }
 
-    /// Charge les données depuis le fichier chiffré
+    /// Charge les donnees depuis le fichier chiffre
     ///
     /// # Arguments
-    /// * `password` - Mot de passe maître
+    /// * `password` - Mot de passe maitre
     pub fn load(&self, password: &str) -> StorageResult<AppData> {
-        // Lire le fichier
         let encrypted_json = fs::read_to_string(&self.data_path)?;
-
-        // Parser le JSON des métadonnées de chiffrement
         let encrypted: EncryptedData = serde_json::from_str(&encrypted_json)?;
-
-        // Déchiffrer
         let decrypted_json = CryptoEngine::decrypt(&encrypted, password)?;
-
-        // Parser les données de l'app
         let app_data: AppData = serde_json::from_str(&decrypted_json)?;
-
         Ok(app_data)
     }
 
-    /// Sauvegarde les données dans le fichier chiffré
+    /// Sauvegarde les donnees dans le fichier chiffre (ecriture atomique)
     ///
     /// # Arguments
-    /// * `data` - Données de l'application
-    /// * `password` - Mot de passe maître
-    /// * `create_backup` - Créer un backup avant d'écraser
+    /// * `data` - Donnees de l'application
+    /// * `password` - Mot de passe maitre
+    /// * `create_backup` - Creer un backup avant d'ecraser
     pub fn save(&self, data: &AppData, password: &str, create_backup: bool) -> StorageResult<()> {
-        // Backup si demandé et si le fichier existe déjà
+        // Backup si demande et si le fichier existe deja
         if create_backup && self.exists() {
             self.create_backup()?;
         }
 
-        // Sérialiser les données en JSON
+        // Serialiser les donnees en JSON
         let json = serde_json::to_string_pretty(data)?;
 
         // Chiffrer
         let encrypted = CryptoEngine::encrypt(&json, password)?;
 
-        // Sérialiser les métadonnées de chiffrement
+        // Serialiser les metadonnees de chiffrement
         let encrypted_json = serde_json::to_string_pretty(&encrypted)?;
 
-        // Écrire dans le fichier
-        fs::write(&self.data_path, encrypted_json)?;
+        // Ecriture atomique: ecrire dans un fichier temporaire puis renommer
+        let tmp_path = self.data_path.with_extension("tmp");
+        fs::write(&tmp_path, &encrypted_json)?;
+        fs::rename(&tmp_path, &self.data_path).map_err(|e| {
+            // Si le rename echoue, essayer de nettoyer le fichier temp
+            let _ = fs::remove_file(&tmp_path);
+            e
+        })?;
 
         Ok(())
     }
 
-    /// Crée un fichier de données initial (première utilisation)
+    /// Cree un fichier de donnees initial (premiere utilisation)
     pub fn initialize(&self, password: &str) -> StorageResult<()> {
         let initial_data = AppData::default();
         self.save(&initial_data, password, false)?;
         Ok(())
     }
 
-    /// Crée un backup du fichier actuel
+    /// Cree un backup du fichier actuel
     fn create_backup(&self) -> StorageResult<()> {
         if !self.exists() {
             return Ok(());
@@ -301,13 +311,16 @@ impl StorageManager {
         // Nom du backup avec timestamp
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
         let backup_name = format!("sites-{}.encrypted", timestamp);
         let backup_file = self.backup_path.join(backup_name);
 
         // Copier le fichier
         fs::copy(&self.data_path, &backup_file)?;
+
+        // Nettoyer les vieux backups (garder les 50 derniers)
+        let _ = self.cleanup_old_backups(50);
 
         Ok(())
     }
@@ -329,39 +342,70 @@ impl StorageManager {
             }
         }
 
-        // Trier par ordre décroissant (plus récent en premier)
+        // Trier par ordre decroissant (plus recent en premier)
         backups.sort_by(|a, b| b.cmp(a));
 
         Ok(backups)
     }
 
-    /// Restaure depuis un backup
+    /// Restaure depuis un backup (avec validation du nom)
     pub fn restore_backup(&self, backup_name: &str) -> StorageResult<()> {
+        // Valider le nom du backup contre le path traversal
+        if backup_name.contains('/')
+            || backup_name.contains('\\')
+            || backup_name.contains("..")
+            || backup_name.is_empty()
+        {
+            return Err("Nom de backup invalide".into());
+        }
+
+        // Verifier que le nom correspond au format attendu
+        if !backup_name.starts_with("sites-") || !backup_name.ends_with(".encrypted") {
+            return Err("Format de nom de backup invalide".into());
+        }
+
         let backup_file = self.backup_path.join(backup_name);
+
+        // Verifier que le fichier resolu est bien dans le dossier backups
+        let canonical_backup = backup_file
+            .canonicalize()
+            .map_err(|_| "Backup introuvable")?;
+        let canonical_backup_dir = self
+            .backup_path
+            .canonicalize()
+            .map_err(|_| "Dossier backups introuvable")?;
+        if !canonical_backup.starts_with(&canonical_backup_dir) {
+            return Err("Acces non autorise".into());
+        }
 
         if !backup_file.exists() {
             return Err("Backup introuvable".into());
         }
 
-        // Créer un backup du fichier actuel avant restauration
+        // Creer un backup du fichier actuel avant restauration
         if self.exists() {
             self.create_backup()?;
         }
 
-        // Copier le backup
-        fs::copy(&backup_file, &self.data_path)?;
+        // Copier le backup (ecriture atomique)
+        let tmp_path = self.data_path.with_extension("tmp");
+        fs::copy(&backup_file, &tmp_path)?;
+        fs::rename(&tmp_path, &self.data_path).map_err(|e| {
+            let _ = fs::remove_file(&tmp_path);
+            e
+        })?;
 
         Ok(())
     }
 
-    /// Nettoie les vieux backups (garde les N plus récents)
+    /// Nettoie les vieux backups (garde les N plus recents)
     pub fn cleanup_old_backups(&self, keep_count: usize) -> StorageResult<()> {
         let backups = self.list_backups()?;
 
-        // Supprimer les backups au-delà de keep_count
+        // Supprimer les backups au-dela de keep_count
         for backup in backups.iter().skip(keep_count) {
             let backup_file = self.backup_path.join(backup);
-            fs::remove_file(backup_file)?;
+            let _ = fs::remove_file(backup_file);
         }
 
         Ok(())
@@ -375,8 +419,8 @@ mod tests {
 
     #[test]
     fn test_storage_full_cycle() {
-        // Créer un dossier temporaire pour les tests
-        let temp_dir = env::temp_dir().join("fluent_app_test");
+        // Creer un dossier temporaire pour les tests
+        let temp_dir = env::temp_dir().join(format!("cockpit_test_{}", std::process::id()));
         let _ = fs::create_dir_all(&temp_dir);
 
         let storage = StorageManager::new(&temp_dir).unwrap();
@@ -401,7 +445,7 @@ mod tests {
                 backend: "/admin".to_string(),
                 phpmyadmin: "https://phpmyadmin.test".to_string(),
             },
-            dashlane_refs: DashlaneRefs {
+            enpass_refs: EnpassRefs {
                 backend_protection: None,
                 joomla_admin: "[Test] Joomla Admin".to_string(),
                 mysql_su: "[Test] MySQL SU".to_string(),
@@ -427,7 +471,7 @@ mod tests {
             interventions: vec![],
             contacts: vec![],
             notes: String::new(),
-            last_update: chrono::Local::now().to_rfc3339(),
+            last_update: "2025-01-01T00:00:00+00:00".to_string(),
         });
 
         // Sauvegarder

@@ -7,17 +7,20 @@
   },
   "package": {
     "productName": "Cockpit CFDT",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "tauri": {
     "allowlist": {
       "all": false,
       "shell": {
         "all": false,
-        "open": true
+        "open": true,
+        "execute": false,
+        "sidecar": false,
+        "scope": []
       },
       "path": {
-        "all": true
+        "all": false
       },
       "fs": {
         "all": false,
@@ -27,7 +30,7 @@
         "createDir": true,
         "removeFile": true,
         "exists": true,
-        "scope": ["$APPDATA/*", "$HOME/*"]
+        "scope": ["$APPDATA/com.cfdt.fluentapp/*", "$APPDATA/com.cfdt.fluentapp/**"]
       },
       "dialog": {
         "all": false,
@@ -58,7 +61,7 @@
       }
     },
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src ipc: https://ipc.localhost; img-src 'self' data:"
     },
     "windows": [
       {
