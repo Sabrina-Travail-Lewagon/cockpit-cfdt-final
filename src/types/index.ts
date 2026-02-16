@@ -112,7 +112,8 @@ export interface AppSettings {
   auto_lock_minutes: number;
   auto_backup: boolean;
   backup_keep_days: number;
-  enpass_cli_path: string;
+  /** @deprecated Conserve pour compatibilite, ignore (lecture directe du vault) */
+  enpass_cli_path?: string;
   enpass_vault_path: string;
   enpass_use_separate_password: boolean;
 }

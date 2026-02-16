@@ -5,7 +5,6 @@
 
 use cockpit_cfdt::{AppData, ConfigManager, StorageManager};
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::Mutex;
 use tauri::State;
 
@@ -284,128 +283,17 @@ fn get_custom_data_location(config_dir: String) -> Result<Option<String>, String
 }
 
 // =========================================================================
-// Commandes Enpass CLI
+// Commandes Enpass (lecture directe du vault SQLCipher)
 // =========================================================================
 
-use std::time::Duration;
+use cockpit_cfdt::enpass;
 
-/// Timeout pour les commandes enpass-cli (15 secondes)
-const ENPASS_CLI_TIMEOUT: Duration = Duration::from_secs(15);
-
-/// Resultat d'une commande enpass-cli
+/// Resultat d'une commande Enpass
 #[derive(serde::Serialize)]
 struct EnpassCliResult {
     success: bool,
     message: String,
     data: Option<String>,
-}
-
-/// Resout et valide le chemin de enpasscli.exe
-fn resolve_enpass_cli(cli_path: &str) -> Result<String, String> {
-    if cli_path == "auto" || cli_path.is_empty() {
-        Ok("enpasscli".to_string())
-    } else {
-        let path = std::path::Path::new(cli_path);
-        if !path.exists() {
-            return Err(format!(
-                "enpass-cli introuvable a l'emplacement: {}. Verifiez le chemin dans les parametres.",
-                cli_path
-            ));
-        }
-        Ok(cli_path.to_string())
-    }
-}
-
-/// Fonction helper pour executer une commande enpass-cli
-fn run_enpass_cli(
-    cli_path: &str,
-    vault_path: &str,
-    master_password: &str,
-    args: &[&str],
-) -> Result<(bool, String, String), String> {
-    let cli = resolve_enpass_cli(cli_path)?;
-
-    let vault_arg = format!("-vault={}", vault_path);
-    let mut full_args: Vec<&str> = vec![&vault_arg, "-nonInteractive"];
-    full_args.extend_from_slice(args);
-
-    let mut child = Command::new(&cli)
-        .args(&full_args)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| {
-            format!(
-                "Erreur lancement enpass-cli: {}. Verifiez que enpasscli est installe et accessible.",
-                e
-            )
-        })?;
-
-    // Envoyer le master password via stdin
-    {
-        use std::io::Write;
-        let stdin = child
-            .stdin
-            .as_mut()
-            .ok_or_else(|| "Impossible d'ouvrir stdin pour enpass-cli".to_string())?;
-        writeln!(stdin, "{}", master_password)
-            .map_err(|e| format!("Erreur envoi mot de passe a enpass-cli: {}", e))?;
-    }
-
-    // Attendre avec timeout
-    let output = wait_with_timeout(&mut child, ENPASS_CLI_TIMEOUT)?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let success = output.status.success();
-
-    Ok((success, stdout, stderr))
-}
-
-/// Attend la fin d'un process enfant avec un timeout
-fn wait_with_timeout(
-    child: &mut std::process::Child,
-    timeout: Duration,
-) -> Result<std::process::Output, String> {
-    use std::io::Read;
-
-    let start = std::time::Instant::now();
-    let poll_interval = Duration::from_millis(100);
-
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                // Le process est termine, lire stdout et stderr
-                let mut stdout = Vec::new();
-                let mut stderr = Vec::new();
-                if let Some(ref mut out) = child.stdout {
-                    let _ = out.read_to_end(&mut stdout);
-                }
-                if let Some(ref mut err) = child.stderr {
-                    let _ = err.read_to_end(&mut stderr);
-                }
-                return Ok(std::process::Output {
-                    status,
-                    stdout,
-                    stderr,
-                });
-            }
-            Ok(None) => {
-                if start.elapsed() >= timeout {
-                    let _ = child.kill();
-                    return Err(format!(
-                        "enpass-cli n'a pas repondu dans les {} secondes. Le vault est peut-etre verrouille ou inaccessible.",
-                        timeout.as_secs()
-                    ));
-                }
-                std::thread::sleep(poll_interval);
-            }
-            Err(e) => {
-                return Err(format!("Erreur attente enpass-cli: {}", e));
-            }
-        }
-    }
 }
 
 /// Recupere le mot de passe d'une entree Enpass
@@ -414,30 +302,18 @@ fn enpass_get_password(
     vault_path: String,
     entry_name: String,
     master_password: String,
-    cli_path: String,
 ) -> Result<EnpassCliResult, String> {
-    let (success, stdout, stderr) = run_enpass_cli(
-        &cli_path,
-        &vault_path,
-        &master_password,
-        &["pass", &entry_name],
-    )?;
-
-    if success {
-        Ok(EnpassCliResult {
+    match enpass::get_password(&vault_path, &entry_name, &master_password) {
+        Ok(password) => Ok(EnpassCliResult {
             success: true,
             message: "Mot de passe recupere".to_string(),
-            data: Some(stdout),
-        })
-    } else {
-        Ok(EnpassCliResult {
+            data: Some(password),
+        }),
+        Err(e) => Ok(EnpassCliResult {
             success: false,
-            message: format!(
-                "Erreur enpass-cli: {}",
-                if !stderr.is_empty() { &stderr } else { &stdout }
-            ),
+            message: format!("Erreur: {}", e),
             data: None,
-        })
+        }),
     }
 }
 
@@ -447,63 +323,42 @@ fn enpass_show_entry(
     vault_path: String,
     entry_name: String,
     master_password: String,
-    cli_path: String,
 ) -> Result<EnpassCliResult, String> {
-    let (success, stdout, stderr) = run_enpass_cli(
-        &cli_path,
-        &vault_path,
-        &master_password,
-        &["-json", "show", &entry_name],
-    )?;
-
-    if success {
-        Ok(EnpassCliResult {
+    match enpass::show_entry(&vault_path, &entry_name, &master_password) {
+        Ok(json_data) => Ok(EnpassCliResult {
             success: true,
             message: "Entree trouvee".to_string(),
-            data: Some(stdout),
-        })
-    } else {
-        Ok(EnpassCliResult {
+            data: Some(json_data),
+        }),
+        Err(e) => Ok(EnpassCliResult {
             success: false,
-            message: format!(
-                "Erreur: {}",
-                if !stderr.is_empty() { &stderr } else { &stdout }
-            ),
+            message: format!("Erreur: {}", e),
             data: None,
-        })
+        }),
     }
 }
 
-/// Copie le mot de passe dans le presse-papiers via enpass-cli
+/// Recupere le mot de passe d'une entree (alias pour copy - le frontend
+/// gere le presse-papiers via navigator.clipboard.writeText)
 #[tauri::command]
 fn enpass_copy_password(
     vault_path: String,
     entry_name: String,
     master_password: String,
-    cli_path: String,
 ) -> Result<EnpassCliResult, String> {
-    let (success, stdout, stderr) = run_enpass_cli(
-        &cli_path,
-        &vault_path,
-        &master_password,
-        &["copy", &entry_name],
-    )?;
-
-    if success {
-        Ok(EnpassCliResult {
+    // On retourne directement le mot de passe ; le frontend se charge
+    // de le copier dans le presse-papiers
+    match enpass::get_password(&vault_path, &entry_name, &master_password) {
+        Ok(password) => Ok(EnpassCliResult {
             success: true,
-            message: "Mot de passe copie dans le presse-papiers".to_string(),
-            data: None,
-        })
-    } else {
-        Ok(EnpassCliResult {
+            message: "Mot de passe recupere".to_string(),
+            data: Some(password),
+        }),
+        Err(e) => Ok(EnpassCliResult {
             success: false,
-            message: format!(
-                "Erreur: {}",
-                if !stderr.is_empty() { &stderr } else { &stdout }
-            ),
+            message: format!("Erreur: {}", e),
             data: None,
-        })
+        }),
     }
 }
 
@@ -516,35 +371,25 @@ fn enpass_create_entry(
     password: String,
     url: String,
     master_password: String,
-    cli_path: String,
 ) -> Result<EnpassCliResult, String> {
-    let title_arg = format!("-title={}", title);
-    let login_arg = format!("-login={}", login);
-    let pass_arg = format!("-password={}", password);
-    let url_arg = format!("-url={}", url);
-
-    let (success, stdout, stderr) = run_enpass_cli(
-        &cli_path,
+    match enpass::create_entry(
         &vault_path,
+        &title,
+        &login,
+        &password,
+        &url,
         &master_password,
-        &["create", &title_arg, &login_arg, &pass_arg, &url_arg],
-    )?;
-
-    if success {
-        Ok(EnpassCliResult {
+    ) {
+        Ok(uuid) => Ok(EnpassCliResult {
             success: true,
-            message: format!("Entree '{}' creee dans Enpass", title),
+            message: format!("Entree '{}' creee dans Enpass ({})", title, uuid),
             data: None,
-        })
-    } else {
-        Ok(EnpassCliResult {
+        }),
+        Err(e) => Ok(EnpassCliResult {
             success: false,
-            message: format!(
-                "Erreur creation: {}",
-                if !stderr.is_empty() { &stderr } else { &stdout }
-            ),
+            message: format!("Erreur creation: {}", e),
             data: None,
-        })
+        }),
     }
 }
 
@@ -554,56 +399,42 @@ fn enpass_list_entries(
     vault_path: String,
     filter: String,
     master_password: String,
-    cli_path: String,
 ) -> Result<EnpassCliResult, String> {
-    let (success, stdout, stderr) = run_enpass_cli(
-        &cli_path,
-        &vault_path,
-        &master_password,
-        &["-json", "list", &filter],
-    )?;
-
-    if success {
-        Ok(EnpassCliResult {
-            success: true,
-            message: "Liste recuperee".to_string(),
-            data: Some(stdout),
-        })
-    } else {
-        Ok(EnpassCliResult {
+    match enpass::list_entries(&vault_path, &filter, &master_password) {
+        Ok(entries) => {
+            let json = serde_json::to_string(&entries)
+                .map_err(|e| format!("Erreur serialisation: {}", e))?;
+            Ok(EnpassCliResult {
+                success: true,
+                message: "Liste recuperee".to_string(),
+                data: Some(json),
+            })
+        }
+        Err(e) => Ok(EnpassCliResult {
             success: false,
-            message: format!(
-                "Erreur: {}",
-                if !stderr.is_empty() { &stderr } else { &stdout }
-            ),
+            message: format!("Erreur: {}", e),
             data: None,
-        })
+        }),
     }
 }
 
-/// Verifie que enpass-cli est accessible et le vault est valide
+/// Verifie que le vault Enpass est accessible
 #[tauri::command]
 fn enpass_check_setup(
     vault_path: String,
     master_password: String,
-    cli_path: String,
 ) -> Result<EnpassCliResult, String> {
-    let (success, stdout, stderr) =
-        run_enpass_cli(&cli_path, &vault_path, &master_password, &["list", ""])?;
-
-    if success {
-        Ok(EnpassCliResult {
+    match enpass::check_setup(&vault_path, &master_password) {
+        Ok(()) => Ok(EnpassCliResult {
             success: true,
-            message: "Enpass CLI configure correctement".to_string(),
+            message: "Vault Enpass accessible et configure correctement".to_string(),
             data: None,
-        })
-    } else {
-        let error_detail = if !stderr.is_empty() { &stderr } else { &stdout };
-        Ok(EnpassCliResult {
+        }),
+        Err(e) => Ok(EnpassCliResult {
             success: false,
-            message: format!("Erreur configuration: {}", error_detail),
+            message: format!("Erreur configuration: {}", e),
             data: None,
-        })
+        }),
     }
 }
 
@@ -624,7 +455,7 @@ fn main() {
             get_data_location,
             set_data_location,
             get_custom_data_location,
-            // Commandes Enpass CLI
+            // Commandes Enpass (lecture directe du vault)
             enpass_get_password,
             enpass_show_entry,
             enpass_copy_password,

@@ -58,8 +58,7 @@ export const AddSiteModal: React.FC<AddSiteModalProps> = ({ onAdd, onClose, sett
           'admin',
           '', // Le mot de passe sera rempli manuellement dans Enpass
           `${siteUrl}/administrator`,
-          enpassMasterPassword,
-          settings.enpass_cli_path
+          enpassMasterPassword
         );
 
         // Creer l'entree MySQL
@@ -70,8 +69,7 @@ export const AddSiteModal: React.FC<AddSiteModalProps> = ({ onAdd, onClose, sett
           'root',
           '',
           siteUrl,
-          enpassMasterPassword,
-          settings.enpass_cli_path
+          enpassMasterPassword
         );
 
         setEnpassStatus('Entrees creees dans Enpass !');

@@ -280,7 +280,6 @@ export function getMockData(): AppData {
       auto_lock_minutes: 5,
       auto_backup: true,
       backup_keep_days: 30,
-      enpass_cli_path: 'auto',
       enpass_vault_path: '',
       enpass_use_separate_password: false,
     },

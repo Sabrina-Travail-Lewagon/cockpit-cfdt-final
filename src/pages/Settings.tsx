@@ -199,8 +199,7 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
 
       const result = await checkSetup(
         appData.settings.enpass_vault_path,
-        effectivePassword,
-        appData.settings.enpass_cli_path
+        effectivePassword
       );
       setEnpassTestResult(result);
     } catch (err) {
@@ -352,55 +351,13 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
           <h2>Enpass (Gestionnaire de mots de passe)</h2>
 
           <div className="settings-card">
-            <h3>Configuration Enpass CLI</h3>
+            <h3>Configuration du vault Enpass</h3>
             <p className="settings-description">
-              Configurez enpass-cli pour copier les identifiants directement depuis Cockpit.
-              Telechargez enpass-cli depuis <a href="https://github.com/hazcod/enpass-cli/releases" target="_blank" rel="noopener noreferrer">GitHub</a>.
+              Cockpit lit directement votre vault Enpass (pas besoin d'installer enpass-cli).
+              Indiquez le dossier contenant votre vault (vault.enpassdb + vault.json).
             </p>
 
             <div className="enpass-config">
-              <div className="form-group">
-                <label>Chemin vers enpasscli.exe</label>
-                <div className="input-with-browse">
-                  <input
-                    type="text"
-                    value={appData.settings.enpass_cli_path}
-                    onChange={(e) => {
-                      const newSettings = { ...appData.settings, enpass_cli_path: e.target.value };
-                      // Mettre a jour l'etat local immediatement
-                      onDataChange({ ...appData, settings: newSettings });
-                    }}
-                    onBlur={() => {
-                      // Sauvegarder au blur plutot qu'a chaque frappe
-                      saveSettingsDebounced(appData.settings);
-                    }}
-                    placeholder="auto (cherche dans le PATH)"
-                    className="settings-input"
-                  />
-                  <Button
-                    variant="secondary"
-                    onClick={async () => {
-                      try {
-                        const selected = await open({
-                          multiple: false,
-                          filters: [{ name: 'Executable', extensions: ['exe'] }],
-                          title: 'Selectionner enpasscli.exe',
-                        });
-                        if (selected && typeof selected === 'string') {
-                          onDataChange({
-                            ...appData,
-                            settings: { ...appData.settings, enpass_cli_path: selected }
-                          });
-                        }
-                      } catch { /* annule */ }
-                    }}
-                  >
-                    Parcourir
-                  </Button>
-                </div>
-                <span className="input-info">Laissez "auto" si enpasscli est dans le PATH</span>
-              </div>
-
               <div className="form-group">
                 <label>Chemin vers le vault Enpass</label>
                 <div className="input-with-browse">

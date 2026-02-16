@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod crypto;
+pub mod enpass;
 pub mod storage;
 
 // Réexporter les types nécessaires

@@ -189,10 +189,12 @@ pub struct AppSettings {
     /// Nombre de jours de retention des backups
     pub backup_keep_days: u32,
 
-    /// Chemin vers enpass-cli (ou "auto")
+    /// Ancien champ enpass_cli_path - conserve pour compatibilite avec les donnees existantes
+    /// mais ignore a l'utilisation (lecture directe du vault)
+    #[serde(default, skip_serializing)]
     pub enpass_cli_path: String,
 
-    /// Chemin vers le vault Enpass
+    /// Chemin vers le vault Enpass (repertoire contenant vault.enpassdb + vault.json)
     #[serde(default)]
     pub enpass_vault_path: String,
 
@@ -207,7 +209,7 @@ impl Default for AppSettings {
             auto_lock_minutes: 5,
             auto_backup: true,
             backup_keep_days: 30,
-            enpass_cli_path: "auto".to_string(),
+            enpass_cli_path: String::new(),
             enpass_vault_path: String::new(),
             enpass_use_separate_password: false,
         }

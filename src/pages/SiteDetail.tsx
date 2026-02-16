@@ -98,8 +98,7 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, settings, enpassMa
       const result = await copyPasswordToClipboard(
         settings.enpass_vault_path,
         entryRef,
-        enpassMasterPassword,
-        settings.enpass_cli_path
+        enpassMasterPassword
       );
       showEnpassMessage(result.message);
     } catch (err) {
@@ -122,8 +121,7 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, settings, enpassMa
       const result = await copyLoginToClipboard(
         settings.enpass_vault_path,
         entryRef,
-        enpassMasterPassword,
-        settings.enpass_cli_path
+        enpassMasterPassword
       );
       showEnpassMessage(result.message);
     } catch (err) {

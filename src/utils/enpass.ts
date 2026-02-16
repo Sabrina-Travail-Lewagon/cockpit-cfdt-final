@@ -1,5 +1,5 @@
-// Utilitaires pour interagir avec Enpass via enpass-cli
-// enpass-cli: https://github.com/hazcod/enpass-cli
+// Utilitaires pour interagir avec le vault Enpass
+// Lecture directe du vault SQLCipher (plus besoin de enpass-cli)
 
 import { invoke } from '@tauri-apps/api/tauri';
 import { EnpassResult } from '../types';
@@ -42,38 +42,23 @@ function scheduleClipboardClear(): void {
 export async function copyPasswordToClipboard(
   vaultPath: string,
   entryName: string,
-  masterPassword: string,
-  cliPath: string = 'auto'
+  masterPassword: string
 ): Promise<EnpassResult> {
   try {
-    // D'abord essayer la commande copy native de enpass-cli
+    // Recuperer le mot de passe depuis le vault
     const result = await invoke<EnpassCliResult>('enpass_copy_password', {
       vaultPath,
       entryName,
       masterPassword,
-      cliPath,
     });
 
-    if (result.success) {
+    if (result.success && result.data) {
+      await navigator.clipboard.writeText(result.data);
       scheduleClipboardClear();
       return { success: true, message: 'Mot de passe copie dans le presse-papiers (efface dans 30s)' };
     }
 
-    // Fallback: recuperer le password et copier manuellement
-    const passResult = await invoke<EnpassCliResult>('enpass_get_password', {
-      vaultPath,
-      entryName,
-      masterPassword,
-      cliPath,
-    });
-
-    if (passResult.success && passResult.data) {
-      await navigator.clipboard.writeText(passResult.data);
-      scheduleClipboardClear();
-      return { success: true, message: 'Mot de passe copie dans le presse-papiers (efface dans 30s)' };
-    }
-
-    return { success: false, message: passResult.message };
+    return { success: false, message: result.message };
   } catch (err) {
     return {
       success: false,
@@ -88,15 +73,13 @@ export async function copyPasswordToClipboard(
 export async function getPassword(
   vaultPath: string,
   entryName: string,
-  masterPassword: string,
-  cliPath: string = 'auto'
+  masterPassword: string
 ): Promise<EnpassResult> {
   try {
     const result = await invoke<EnpassCliResult>('enpass_get_password', {
       vaultPath,
       entryName,
       masterPassword,
-      cliPath,
     });
 
     return {
@@ -118,15 +101,13 @@ export async function getPassword(
 export async function showEntry(
   vaultPath: string,
   entryName: string,
-  masterPassword: string,
-  cliPath: string = 'auto'
+  masterPassword: string
 ): Promise<EnpassResult> {
   try {
     const result = await invoke<EnpassCliResult>('enpass_show_entry', {
       vaultPath,
       entryName,
       masterPassword,
-      cliPath,
     });
 
     return {
@@ -149,28 +130,36 @@ export async function showEntry(
 export async function copyLoginToClipboard(
   vaultPath: string,
   entryName: string,
-  masterPassword: string,
-  cliPath: string = 'auto'
+  masterPassword: string
 ): Promise<EnpassResult> {
   try {
     const result = await invoke<EnpassCliResult>('enpass_show_entry', {
       vaultPath,
       entryName,
       masterPassword,
-      cliPath,
     });
 
     if (result.success && result.data) {
       try {
-        // enpass-cli -json retourne un tableau JSON
-        const entries = JSON.parse(result.data);
-        if (Array.isArray(entries) && entries.length > 0) {
-          const login = entries[0].login ?? entries[0].username ?? '';
-          if (login) {
-            await navigator.clipboard.writeText(login);
+        // Le backend retourne un objet JSON plat avec les champs de l'entree
+        const entry = JSON.parse(result.data);
+
+        // Chercher le login dans plusieurs champs possibles
+        const login = entry.login ?? entry.username ?? entry.subtitle ?? '';
+        if (login) {
+          await navigator.clipboard.writeText(login);
+          return { success: true, message: 'Login copie dans le presse-papiers' };
+        }
+
+        // Fallback : si c'est un tableau (ancien format)
+        if (Array.isArray(entry) && entry.length > 0) {
+          const firstLogin = entry[0].login ?? entry[0].username ?? '';
+          if (firstLogin) {
+            await navigator.clipboard.writeText(firstLogin);
             return { success: true, message: 'Login copie dans le presse-papiers' };
           }
         }
+
         return { success: false, message: 'Login non trouve dans l\'entree Enpass' };
       } catch {
         // Si ce n'est pas du JSON, essayer de parser en texte
@@ -206,8 +195,7 @@ export async function createEntry(
   login: string,
   password: string,
   url: string,
-  masterPassword: string,
-  cliPath: string = 'auto'
+  masterPassword: string
 ): Promise<EnpassResult> {
   try {
     const result = await invoke<EnpassCliResult>('enpass_create_entry', {
@@ -217,7 +205,6 @@ export async function createEntry(
       password,
       url,
       masterPassword,
-      cliPath,
     });
 
     return {
@@ -238,15 +225,13 @@ export async function createEntry(
 export async function listEntries(
   vaultPath: string,
   filter: string,
-  masterPassword: string,
-  cliPath: string = 'auto'
+  masterPassword: string
 ): Promise<EnpassResult> {
   try {
     const result = await invoke<EnpassCliResult>('enpass_list_entries', {
       vaultPath,
       filter,
       masterPassword,
-      cliPath,
     });
 
     return {
@@ -263,18 +248,16 @@ export async function listEntries(
 }
 
 /**
- * Verifie que enpass-cli est installe et le vault est accessible
+ * Verifie que le vault Enpass est accessible
  */
 export async function checkSetup(
   vaultPath: string,
-  masterPassword: string,
-  cliPath: string = 'auto'
+  masterPassword: string
 ): Promise<EnpassResult> {
   try {
     const result = await invoke<EnpassCliResult>('enpass_check_setup', {
       vaultPath,
       masterPassword,
-      cliPath,
     });
 
     return {
