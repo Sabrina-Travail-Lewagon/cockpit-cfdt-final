@@ -39,17 +39,7 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
   const [storageError, setStorageError] = useState('');
   const [storageSuccess, setStorageSuccess] = useState('');
 
-  // Debounce timer pour les settings Enpass
-  const settingsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (settingsSaveTimerRef.current) {
-        clearTimeout(settingsSaveTimerRef.current);
-      }
-    };
-  }, []);
+  // (saveSettingsDebounced supprime - la sauvegarde est geree par App.tsx via onDataChange)
 
   // Charger l'emplacement actuel au montage
   useEffect(() => {
@@ -64,18 +54,7 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
     loadDataLocation();
   }, []);
 
-  // Helper pour sauvegarder les settings avec debounce
-  const saveSettingsDebounced = (newSettings: typeof appData.settings) => {
-    if (settingsSaveTimerRef.current) {
-      clearTimeout(settingsSaveTimerRef.current);
-    }
-    settingsSaveTimerRef.current = setTimeout(() => {
-      onDataChange({
-        ...appData,
-        settings: newSettings,
-      });
-    }, 800);
-  };
+  // La sauvegarde est geree directement par onDataChange -> App.tsx (debounce 500ms)
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -371,7 +350,7 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
                       });
                     }}
                     onBlur={() => {
-                      saveSettingsDebounced(appData.settings);
+                      // La sauvegarde est deja faite via onChange -> onDataChange -> App.tsx debounce
                     }}
                     placeholder="C:\Users\...\Documents\Enpass\Vaults\primary"
                     className="settings-input"
