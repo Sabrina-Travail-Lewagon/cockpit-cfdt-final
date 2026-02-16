@@ -691,6 +691,96 @@ pub fn check_setup(vault_path: &str, master_password: &str) -> Result<(), String
     Ok(())
 }
 
+/// Detecte automatiquement le(s) vault(s) Enpass sur la machine
+///
+/// Cherche dans les emplacements standards :
+/// - Windows: %APPDATA%\Sinew Software Systems Pvt Ltd\Enpass\Enpass\Vaults\
+/// - macOS: ~/Library/Containers/in.sinew.Enpass-Desktop/Data/Documents/Vaults/
+/// - Linux: ~/.local/share/Enpass/Vaults/
+///
+/// Retourne la liste des chemins de vaults trouves
+pub fn detect_vaults() -> Vec<String> {
+    let mut vaults = Vec::new();
+
+    // Emplacements possibles des vaults Enpass
+    let mut search_dirs: Vec<PathBuf> = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(appdata) = dirs::data_dir() {
+            // %APPDATA% = C:\Users\<user>\AppData\Roaming
+            let roaming = appdata
+                .parent()
+                .map(|p| p.join("Roaming"))
+                .unwrap_or(appdata.clone());
+            search_dirs.push(
+                roaming
+                    .join("Sinew Software Systems Pvt Ltd")
+                    .join("Enpass")
+                    .join("Enpass")
+                    .join("Vaults"),
+            );
+            // Ancien emplacement possible
+            search_dirs.push(roaming.join("Enpass").join("Vaults"));
+        }
+        // Aussi chercher dans AppData\Local
+        if let Some(local) = dirs::data_local_dir() {
+            search_dirs.push(local.join("Enpass").join("Vaults"));
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = dirs::home_dir() {
+            search_dirs.push(
+                home.join("Library")
+                    .join("Containers")
+                    .join("in.sinew.Enpass-Desktop")
+                    .join("Data")
+                    .join("Documents")
+                    .join("Vaults"),
+            );
+            // Installation hors App Store
+            search_dirs.push(home.join("Documents").join("Enpass").join("Vaults"));
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(home) = dirs::home_dir() {
+            search_dirs.push(
+                home.join(".local")
+                    .join("share")
+                    .join("Enpass")
+                    .join("Vaults"),
+            );
+        }
+    }
+
+    for dir in &search_dirs {
+        if !dir.exists() {
+            continue;
+        }
+
+        // Lister les sous-dossiers (chaque sous-dossier est un vault)
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    // Verifier qu'il contient vault.enpassdb ou un .walletx
+                    let has_db = path.join("vault.enpassdb").exists();
+                    let has_walletx = path.join("vault.json").exists();
+                    if has_db || has_walletx {
+                        vaults.push(path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    vaults
+}
+
 /// Genere un UUID v4 simple (sans dependance externe)
 fn generate_uuid() -> String {
     use rand::RngCore;

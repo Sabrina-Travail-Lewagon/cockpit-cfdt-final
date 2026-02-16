@@ -4,6 +4,7 @@ import { Input } from '../components/Input';
 import { changePassword, getDataLocation, setDataLocation } from '../utils/tauri';
 import { exportToExcel, downloadTemplate, importFromExcel } from '../utils/importExport';
 import { checkSetup } from '../utils/enpass';
+import { invoke } from '@tauri-apps/api/tauri';
 import { open } from '@tauri-apps/api/dialog';
 import { AppData, Site } from '../types';
 import './Settings.css';
@@ -349,12 +350,61 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
                         settings: { ...appData.settings, enpass_vault_path: e.target.value }
                       });
                     }}
-                    onBlur={() => {
-                      // La sauvegarde est deja faite via onChange -> onDataChange -> App.tsx debounce
-                    }}
-                    placeholder="C:\Users\...\Documents\Enpass\Vaults\primary"
+                    placeholder="Cliquez 'Detecter' ou 'Parcourir'"
                     className="settings-input"
                   />
+                  <Button
+                    variant="secondary"
+                    onClick={async () => {
+                      try {
+                        // Detection automatique
+                        const vaults = await invoke<string[]>('enpass_detect_vaults');
+                        if (vaults.length === 1) {
+                          onDataChange({
+                            ...appData,
+                            settings: { ...appData.settings, enpass_vault_path: vaults[0] }
+                          });
+                        } else if (vaults.length > 1) {
+                          // Plusieurs vaults trouves, prendre le "primary" si dispo
+                          const primary = vaults.find(v => v.includes('primary')) ?? vaults[0];
+                          onDataChange({
+                            ...appData,
+                            settings: { ...appData.settings, enpass_vault_path: primary }
+                          });
+                        } else {
+                          // Aucun vault trouve, fallback sur le file picker
+                          const selected = await open({
+                            directory: true,
+                            multiple: false,
+                            title: 'Selectionner le dossier du vault Enpass',
+                          });
+                          if (selected && typeof selected === 'string') {
+                            onDataChange({
+                              ...appData,
+                              settings: { ...appData.settings, enpass_vault_path: selected }
+                            });
+                          }
+                        }
+                      } catch {
+                        // Fallback: ouvrir le file picker
+                        try {
+                          const selected = await open({
+                            directory: true,
+                            multiple: false,
+                            title: 'Selectionner le dossier du vault Enpass',
+                          });
+                          if (selected && typeof selected === 'string') {
+                            onDataChange({
+                              ...appData,
+                              settings: { ...appData.settings, enpass_vault_path: selected }
+                            });
+                          }
+                        } catch { /* annule */ }
+                      }
+                    }}
+                  >
+                    Detecter
+                  </Button>
                   <Button
                     variant="secondary"
                     onClick={async () => {
@@ -376,7 +426,7 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
                     Parcourir
                   </Button>
                 </div>
-                <span className="input-info">Le dossier contenant votre vault Enpass (.walletx)</span>
+                <span className="input-info">Le dossier contenant vault.enpassdb + vault.json (generalement dans AppData)</span>
               </div>
 
               <div className="form-group">
@@ -432,18 +482,18 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
 
               {enpassTestResult && (
                 <p className={enpassTestResult.success ? 'form-success' : 'form-error'}>
-                  {enpassTestResult.success ? 'Connexion reussie ! enpass-cli fonctionne correctement.' : enpassTestResult.message}
+                  {enpassTestResult.success ? 'Connexion reussie ! Cockpit peut lire votre vault Enpass.' : enpassTestResult.message}
                 </p>
               )}
             </div>
 
             <div className="storage-tips">
-              <h4>Installation :</h4>
+              <h4>Comment configurer :</h4>
               <ul>
-                <li><strong>1.</strong> Telechargez <a href="https://github.com/hazcod/enpass-cli/releases" target="_blank" rel="noopener noreferrer">enpasscli.exe</a> depuis GitHub</li>
-                <li><strong>2.</strong> Placez-le dans un dossier accessible (ex: C:\Tools\)</li>
-                <li><strong>3.</strong> Ajoutez ce dossier au PATH Windows ou indiquez le chemin complet ci-dessus</li>
-                <li><strong>4.</strong> Indiquez le chemin vers votre vault Enpass (generalement dans Documents\Enpass\Vaults\primary)</li>
+                <li><strong>1.</strong> Cliquez <strong>Detecter</strong> pour trouver automatiquement votre vault Enpass</li>
+                <li><strong>2.</strong> Ou cliquez <strong>Parcourir</strong> pour selectionner manuellement le dossier du vault</li>
+                <li><strong>3.</strong> Si votre vault Enpass utilise un mot de passe different de Cockpit, cochez la case ci-dessus</li>
+                <li><strong>4.</strong> Cliquez <strong>Tester la connexion</strong> pour verifier</li>
               </ul>
             </div>
           </div>
@@ -460,7 +510,7 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
                 Vos donnees sont chiffrees avec AES-256-GCM
               </p>
               <p className="about-security">
-                Integration Enpass via enpass-cli
+                Integration Enpass (lecture directe du vault)
               </p>
             </div>
           </div>

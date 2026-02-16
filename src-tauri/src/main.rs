@@ -418,6 +418,12 @@ fn enpass_list_entries(
     }
 }
 
+/// Detecte automatiquement les vaults Enpass sur la machine
+#[tauri::command]
+fn enpass_detect_vaults() -> Result<Vec<String>, String> {
+    Ok(enpass::detect_vaults())
+}
+
 /// Verifie que le vault Enpass est accessible
 #[tauri::command]
 fn enpass_check_setup(
@@ -462,6 +468,7 @@ fn main() {
             enpass_create_entry,
             enpass_list_entries,
             enpass_check_setup,
+            enpass_detect_vaults,
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors du lancement de l'application");
