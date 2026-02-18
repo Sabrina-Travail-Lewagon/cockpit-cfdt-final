@@ -283,7 +283,7 @@ fn get_custom_data_location(config_dir: String) -> Result<Option<String>, String
 }
 
 // =========================================================================
-// Commandes Enpass (lecture directe du vault SQLCipher)
+// Commandes Enpass (lecture directe du vault SQLCipher, local ou WebDAV)
 // =========================================================================
 
 use cockpit_cfdt::enpass;
@@ -296,14 +296,41 @@ struct EnpassCliResult {
     data: Option<String>,
 }
 
+/// Construit un VaultConfig a partir des parametres de la commande
+fn build_vault_config<'a>(
+    vault_path: &'a str,
+    vault_mode: &'a str,
+    webdav_url: &'a str,
+    pcloud_username: &'a str,
+    pcloud_password: &'a str,
+) -> enpass::VaultConfig<'a> {
+    enpass::VaultConfig {
+        vault_path,
+        mode: vault_mode,
+        webdav_url,
+        pcloud_username,
+        pcloud_password,
+    }
+}
+
 /// Recupere le mot de passe d'une entree Enpass
 #[tauri::command]
 fn enpass_get_password(
     vault_path: String,
     entry_name: String,
     master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
 ) -> Result<EnpassCliResult, String> {
-    match enpass::get_password(&vault_path, &entry_name, &master_password) {
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::get_password_with_config(&config, &entry_name, &master_password) {
         Ok(password) => Ok(EnpassCliResult {
             success: true,
             message: "Mot de passe recupere".to_string(),
@@ -323,8 +350,18 @@ fn enpass_show_entry(
     vault_path: String,
     entry_name: String,
     master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
 ) -> Result<EnpassCliResult, String> {
-    match enpass::show_entry(&vault_path, &entry_name, &master_password) {
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::show_entry_with_config(&config, &entry_name, &master_password) {
         Ok(json_data) => Ok(EnpassCliResult {
             success: true,
             message: "Entree trouvee".to_string(),
@@ -345,10 +382,18 @@ fn enpass_copy_password(
     vault_path: String,
     entry_name: String,
     master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
 ) -> Result<EnpassCliResult, String> {
-    // On retourne directement le mot de passe ; le frontend se charge
-    // de le copier dans le presse-papiers
-    match enpass::get_password(&vault_path, &entry_name, &master_password) {
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::get_password_with_config(&config, &entry_name, &master_password) {
         Ok(password) => Ok(EnpassCliResult {
             success: true,
             message: "Mot de passe recupere".to_string(),
@@ -371,9 +416,19 @@ fn enpass_create_entry(
     password: String,
     url: String,
     master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
 ) -> Result<EnpassCliResult, String> {
-    match enpass::create_entry(
-        &vault_path,
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::create_entry_with_config(
+        &config,
         &title,
         &login,
         &password,
@@ -399,8 +454,18 @@ fn enpass_list_entries(
     vault_path: String,
     filter: String,
     master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
 ) -> Result<EnpassCliResult, String> {
-    match enpass::list_entries(&vault_path, &filter, &master_password) {
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::list_entries_with_config(&config, &filter, &master_password) {
         Ok(entries) => {
             let json = serde_json::to_string(&entries)
                 .map_err(|e| format!("Erreur serialisation: {}", e))?;
@@ -429,8 +494,18 @@ fn enpass_detect_vaults() -> Result<Vec<String>, String> {
 fn enpass_check_setup(
     vault_path: String,
     master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
 ) -> Result<EnpassCliResult, String> {
-    match enpass::check_setup(&vault_path, &master_password) {
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::check_setup_with_config(&config, &master_password) {
         Ok(()) => Ok(EnpassCliResult {
             success: true,
             message: "Vault Enpass accessible et configure correctement".to_string(),
@@ -439,6 +514,58 @@ fn enpass_check_setup(
         Err(e) => Ok(EnpassCliResult {
             success: false,
             message: format!("Erreur configuration: {}", e),
+            data: None,
+        }),
+    }
+}
+
+/// Diagnostic de recherche Enpass : aide a comprendre pourquoi une entree n'est pas trouvee
+#[tauri::command]
+fn enpass_debug_search(
+    vault_path: String,
+    search_term: String,
+    master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
+) -> Result<EnpassCliResult, String> {
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::debug_search_with_config(&config, &search_term, &master_password) {
+        Ok(info) => Ok(EnpassCliResult {
+            success: true,
+            message: "Diagnostic termine".to_string(),
+            data: Some(info),
+        }),
+        Err(e) => Ok(EnpassCliResult {
+            success: false,
+            message: format!("Erreur diagnostic: {}", e),
+            data: None,
+        }),
+    }
+}
+
+/// Synchronise le vault Enpass depuis pCloud WebDAV (force le re-telechargement)
+#[tauri::command]
+fn enpass_sync_webdav(
+    webdav_url: String,
+    pcloud_username: String,
+    pcloud_password: String,
+) -> Result<EnpassCliResult, String> {
+    match enpass::sync_webdav_vault(&webdav_url, &pcloud_username, &pcloud_password) {
+        Ok(msg) => Ok(EnpassCliResult {
+            success: true,
+            message: msg,
+            data: None,
+        }),
+        Err(e) => Ok(EnpassCliResult {
+            success: false,
+            message: format!("Erreur synchronisation: {}", e),
             data: None,
         }),
     }
@@ -461,7 +588,7 @@ fn main() {
             get_data_location,
             set_data_location,
             get_custom_data_location,
-            // Commandes Enpass (lecture directe du vault)
+            // Commandes Enpass (lecture directe du vault, local ou WebDAV)
             enpass_get_password,
             enpass_show_entry,
             enpass_copy_password,
@@ -469,6 +596,8 @@ fn main() {
             enpass_list_entries,
             enpass_check_setup,
             enpass_detect_vaults,
+            enpass_sync_webdav,
+            enpass_debug_search,
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors du lancement de l'application");

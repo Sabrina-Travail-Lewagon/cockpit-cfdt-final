@@ -10,9 +10,10 @@ interface AddSiteModalProps {
   onClose: () => void;
   settings?: AppSettings;
   enpassMasterPassword?: string;
+  pcloudPassword?: string;
 }
 
-export const AddSiteModal: React.FC<AddSiteModalProps> = ({ onAdd, onClose, settings, enpassMasterPassword }) => {
+export const AddSiteModal: React.FC<AddSiteModalProps> = ({ onAdd, onClose, settings, enpassMasterPassword, pcloudPassword }) => {
   const [name, setName] = useState('');
   const [frontendUrl, setFrontendUrl] = useState('https://');
   const [backendUrl, setBackendUrl] = useState('');
@@ -45,7 +46,10 @@ export const AddSiteModal: React.FC<AddSiteModalProps> = ({ onAdd, onClose, sett
     const siteUrl = frontendUrl.trim();
 
     // Creer automatiquement les entrees dans Enpass si demande
-    if (createInEnpass && settings?.enpass_vault_path && enpassMasterPassword) {
+    const enpassConfigured = settings?.enpass_vault_mode === 'webdav'
+      ? !!settings?.enpass_webdav_url
+      : !!settings?.enpass_vault_path;
+    if (createInEnpass && enpassConfigured && enpassMasterPassword) {
       setCreating(true);
       setEnpassStatus('Creation des entrees dans Enpass...');
 
@@ -53,23 +57,27 @@ export const AddSiteModal: React.FC<AddSiteModalProps> = ({ onAdd, onClose, sett
         // Creer l'entree Joomla Admin
         const joomlaRef = `[${siteName}] Joomla Admin`;
         await createEntry(
-          settings.enpass_vault_path,
+          settings!.enpass_vault_path,
           joomlaRef,
           'admin',
           '', // Le mot de passe sera rempli manuellement dans Enpass
           `${siteUrl}/administrator`,
-          enpassMasterPassword
+          enpassMasterPassword,
+          settings,
+          pcloudPassword
         );
 
         // Creer l'entree MySQL
         const mysqlRef = `[${siteName}] MySQL Root`;
         await createEntry(
-          settings.enpass_vault_path,
+          settings!.enpass_vault_path,
           mysqlRef,
           'root',
           '',
           siteUrl,
-          enpassMasterPassword
+          enpassMasterPassword,
+          settings,
+          pcloudPassword
         );
 
         setEnpassStatus('Entrees creees dans Enpass !');

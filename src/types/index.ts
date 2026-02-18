@@ -116,6 +116,12 @@ export interface AppSettings {
   enpass_cli_path?: string;
   enpass_vault_path: string;
   enpass_use_separate_password: boolean;
+  /** Mode de stockage du vault : "" (local) ou "webdav" */
+  enpass_vault_mode: string;
+  /** URL WebDAV du vault Enpass (ex: https://ewebdav.pcloud.com/Enpass/) */
+  enpass_webdav_url: string;
+  /** Nom d'utilisateur pCloud (email) pour l'authentification WebDAV */
+  enpass_pcloud_username: string;
 }
 
 // Types pour l'état de l'application

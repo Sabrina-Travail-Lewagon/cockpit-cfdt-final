@@ -1,8 +1,8 @@
 // Utilitaires pour interagir avec le vault Enpass
-// Lecture directe du vault SQLCipher (plus besoin de enpass-cli)
+// Lecture directe du vault SQLCipher (local ou via pCloud WebDAV)
 
 import { invoke } from '@tauri-apps/api/tauri';
-import { EnpassResult } from '../types';
+import { EnpassResult, AppSettings } from '../types';
 
 interface EnpassCliResult {
   success: boolean;
@@ -37,19 +37,44 @@ function scheduleClipboardClear(): void {
 }
 
 /**
+ * Construit les parametres WebDAV a passer aux commandes Tauri
+ * si le mode WebDAV est active dans les settings
+ */
+function getWebDavParams(settings: AppSettings, pcloudPassword: string) {
+  if (settings.enpass_vault_mode === 'webdav') {
+    return {
+      vaultMode: 'webdav',
+      webdavUrl: settings.enpass_webdav_url,
+      pcloudUsername: settings.enpass_pcloud_username,
+      pcloudPassword: pcloudPassword,
+    };
+  }
+  return {
+    vaultMode: '',
+    webdavUrl: '',
+    pcloudUsername: '',
+    pcloudPassword: '',
+  };
+}
+
+/**
  * Recupere le mot de passe d'une entree Enpass et le copie dans le presse-papiers
  */
 export async function copyPasswordToClipboard(
   vaultPath: string,
   entryName: string,
-  masterPassword: string
+  masterPassword: string,
+  settings?: AppSettings,
+  pcloudPassword?: string
 ): Promise<EnpassResult> {
   try {
-    // Recuperer le mot de passe depuis le vault
+    const webdav = settings ? getWebDavParams(settings, pcloudPassword || '') : { vaultMode: '', webdavUrl: '', pcloudUsername: '', pcloudPassword: '' };
+
     const result = await invoke<EnpassCliResult>('enpass_copy_password', {
       vaultPath,
       entryName,
       masterPassword,
+      ...webdav,
     });
 
     if (result.success && result.data) {
@@ -73,13 +98,18 @@ export async function copyPasswordToClipboard(
 export async function getPassword(
   vaultPath: string,
   entryName: string,
-  masterPassword: string
+  masterPassword: string,
+  settings?: AppSettings,
+  pcloudPassword?: string
 ): Promise<EnpassResult> {
   try {
+    const webdav = settings ? getWebDavParams(settings, pcloudPassword || '') : { vaultMode: '', webdavUrl: '', pcloudUsername: '', pcloudPassword: '' };
+
     const result = await invoke<EnpassCliResult>('enpass_get_password', {
       vaultPath,
       entryName,
       masterPassword,
+      ...webdav,
     });
 
     return {
@@ -101,13 +131,18 @@ export async function getPassword(
 export async function showEntry(
   vaultPath: string,
   entryName: string,
-  masterPassword: string
+  masterPassword: string,
+  settings?: AppSettings,
+  pcloudPassword?: string
 ): Promise<EnpassResult> {
   try {
+    const webdav = settings ? getWebDavParams(settings, pcloudPassword || '') : { vaultMode: '', webdavUrl: '', pcloudUsername: '', pcloudPassword: '' };
+
     const result = await invoke<EnpassCliResult>('enpass_show_entry', {
       vaultPath,
       entryName,
       masterPassword,
+      ...webdav,
     });
 
     return {
@@ -130,13 +165,18 @@ export async function showEntry(
 export async function copyLoginToClipboard(
   vaultPath: string,
   entryName: string,
-  masterPassword: string
+  masterPassword: string,
+  settings?: AppSettings,
+  pcloudPassword?: string
 ): Promise<EnpassResult> {
   try {
+    const webdav = settings ? getWebDavParams(settings, pcloudPassword || '') : { vaultMode: '', webdavUrl: '', pcloudUsername: '', pcloudPassword: '' };
+
     const result = await invoke<EnpassCliResult>('enpass_show_entry', {
       vaultPath,
       entryName,
       masterPassword,
+      ...webdav,
     });
 
     if (result.success && result.data) {
@@ -195,9 +235,13 @@ export async function createEntry(
   login: string,
   password: string,
   url: string,
-  masterPassword: string
+  masterPassword: string,
+  settings?: AppSettings,
+  pcloudPassword?: string
 ): Promise<EnpassResult> {
   try {
+    const webdav = settings ? getWebDavParams(settings, pcloudPassword || '') : { vaultMode: '', webdavUrl: '', pcloudUsername: '', pcloudPassword: '' };
+
     const result = await invoke<EnpassCliResult>('enpass_create_entry', {
       vaultPath,
       title,
@@ -205,6 +249,7 @@ export async function createEntry(
       password,
       url,
       masterPassword,
+      ...webdav,
     });
 
     return {
@@ -225,13 +270,18 @@ export async function createEntry(
 export async function listEntries(
   vaultPath: string,
   filter: string,
-  masterPassword: string
+  masterPassword: string,
+  settings?: AppSettings,
+  pcloudPassword?: string
 ): Promise<EnpassResult> {
   try {
+    const webdav = settings ? getWebDavParams(settings, pcloudPassword || '') : { vaultMode: '', webdavUrl: '', pcloudUsername: '', pcloudPassword: '' };
+
     const result = await invoke<EnpassCliResult>('enpass_list_entries', {
       vaultPath,
       filter,
       masterPassword,
+      ...webdav,
     });
 
     return {
@@ -252,17 +302,82 @@ export async function listEntries(
  */
 export async function checkSetup(
   vaultPath: string,
-  masterPassword: string
+  masterPassword: string,
+  settings?: AppSettings,
+  pcloudPassword?: string
 ): Promise<EnpassResult> {
   try {
+    const webdav = settings ? getWebDavParams(settings, pcloudPassword || '') : { vaultMode: '', webdavUrl: '', pcloudUsername: '', pcloudPassword: '' };
+
     const result = await invoke<EnpassCliResult>('enpass_check_setup', {
       vaultPath,
       masterPassword,
+      ...webdav,
     });
 
     return {
       success: result.success,
       message: result.message,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: `Erreur: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/**
+ * Synchronise le vault depuis pCloud WebDAV (force le re-telechargement)
+ */
+export async function syncWebDav(
+  webdavUrl: string,
+  pcloudUsername: string,
+  pcloudPassword: string
+): Promise<EnpassResult> {
+  try {
+    const result = await invoke<EnpassCliResult>('enpass_sync_webdav', {
+      webdavUrl,
+      pcloudUsername,
+      pcloudPassword,
+    });
+
+    return {
+      success: result.success,
+      message: result.message,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: `Erreur: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/**
+ * Diagnostic de recherche Enpass : aide a comprendre pourquoi une entree n'est pas trouvee
+ */
+export async function debugSearch(
+  vaultPath: string,
+  searchTerm: string,
+  masterPassword: string,
+  settings?: AppSettings,
+  pcloudPassword?: string
+): Promise<EnpassResult> {
+  try {
+    const webdav = settings ? getWebDavParams(settings, pcloudPassword || '') : { vaultMode: '', webdavUrl: '', pcloudUsername: '', pcloudPassword: '' };
+
+    const result = await invoke<EnpassCliResult>('enpass_debug_search', {
+      vaultPath,
+      searchTerm,
+      masterPassword,
+      ...webdav,
+    });
+
+    return {
+      success: result.success,
+      message: result.message,
+      data: result.data ?? undefined,
     };
   } catch (err) {
     return {

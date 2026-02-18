@@ -17,14 +17,144 @@ use aes_gcm::{Aes256Gcm, Nonce};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// Nombre d'octets pour le sel en tete du fichier .enpassdb
 const SALT_LENGTH: usize = 16;
 
 /// Longueur de la cle hexadecimale pour SQLCipher (64 chars hex = 32 bytes)
 const MASTER_KEY_HEX_LENGTH: usize = 64;
+
+/// Iterations KDF par defaut quand vault.json n'est pas disponible (mode WebDAV)
+const DEFAULT_KDF_ITERATIONS: u32 = 100_000;
+
+// =========================================================================
+// Cache du vault telecharge depuis WebDAV (evite de retelecharger a chaque operation)
+// =========================================================================
+
+/// Chemin du dernier fichier vault telecharge depuis WebDAV (cache en memoire)
+static WEBDAV_CACHE: Mutex<Option<WebDavCache>> = Mutex::new(None);
+
+struct WebDavCache {
+    /// Chemin du fichier temporaire telecharge
+    local_path: PathBuf,
+    /// URL source pour invalidation
+    source_url: String,
+}
+
+/// Telecharge le vault Enpass depuis une URL WebDAV (pCloud)
+///
+/// Le fichier est telecharge dans un dossier temporaire et le chemin local est retourne.
+/// Un cache est utilise pour eviter de retelecharger a chaque operation.
+/// Appelez `invalidate_webdav_cache()` pour forcer un nouveau telechargement.
+fn download_vault_from_webdav(
+    webdav_url: &str,
+    pcloud_username: &str,
+    pcloud_password: &str,
+) -> Result<PathBuf, String> {
+    // Verifier le cache
+    {
+        let cache = WEBDAV_CACHE
+            .lock()
+            .map_err(|_| "Erreur interne: mutex du cache WebDAV corrompu")?;
+        if let Some(ref cached) = *cache {
+            if cached.source_url == webdav_url && cached.local_path.exists() {
+                return Ok(cached.local_path.clone());
+            }
+        }
+    }
+
+    // Construire l'URL du fichier vault
+    let base_url = webdav_url.trim_end_matches('/');
+    let vault_url = format!("{}/vault.enpassdbsync", base_url);
+
+    // Telecharger via HTTP GET avec auth Basic
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("Erreur creation client HTTP: {}", e))?;
+
+    let response = client
+        .get(&vault_url)
+        .basic_auth(pcloud_username, Some(pcloud_password))
+        .send()
+        .map_err(|e| format!("Erreur telechargement vault WebDAV: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Erreur HTTP {} lors du telechargement du vault depuis {}. Verifiez vos identifiants pCloud.",
+            response.status(),
+            vault_url
+        ));
+    }
+
+    let bytes = response
+        .bytes()
+        .map_err(|e| format!("Erreur lecture reponse WebDAV: {}", e))?;
+
+    if bytes.is_empty() {
+        return Err("Le fichier vault telecharge est vide".to_string());
+    }
+
+    // Ecrire dans un fichier temporaire dans le dossier temp systeme
+    let temp_dir = std::env::temp_dir().join("cockpit-enpass-webdav");
+    fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Erreur creation dossier temporaire: {}", e))?;
+
+    let local_path = temp_dir.join("vault.enpassdbsync");
+    let mut file = fs::File::create(&local_path)
+        .map_err(|e| format!("Erreur creation fichier temporaire: {}", e))?;
+    file.write_all(&bytes)
+        .map_err(|e| format!("Erreur ecriture fichier temporaire: {}", e))?;
+
+    // Mettre a jour le cache
+    {
+        let mut cache = WEBDAV_CACHE
+            .lock()
+            .map_err(|_| "Erreur interne: mutex du cache WebDAV corrompu")?;
+        *cache = Some(WebDavCache {
+            local_path: local_path.clone(),
+            source_url: webdav_url.to_string(),
+        });
+    }
+
+    Ok(local_path)
+}
+
+/// Invalide le cache WebDAV (force un nouveau telechargement au prochain appel)
+pub fn invalidate_webdav_cache() {
+    if let Ok(mut cache) = WEBDAV_CACHE.lock() {
+        // Supprimer le fichier temporaire si existant
+        if let Some(ref cached) = *cache {
+            let _ = fs::remove_file(&cached.local_path);
+        }
+        *cache = None;
+    }
+}
+
+/// Ouvre le vault Enpass depuis une URL WebDAV (pCloud)
+///
+/// Telecharge le vault, puis l'ouvre avec les parametres KDF par defaut
+/// (pas besoin de vault.json sur le cloud)
+pub fn open_vault_webdav(
+    webdav_url: &str,
+    pcloud_username: &str,
+    pcloud_password: &str,
+    master_password: &str,
+) -> Result<Connection, String> {
+    let db_path = download_vault_from_webdav(webdav_url, pcloud_username, pcloud_password)?;
+
+    // 1. Extraire le sel (16 premiers octets)
+    let salt = extract_salt(&db_path)?;
+
+    // 2. Deriver la cle via PBKDF2-HMAC-SHA512 (iterations par defaut)
+    let db_key = derive_key(master_password.as_bytes(), &salt, DEFAULT_KDF_ITERATIONS)?;
+
+    // 3. Ouvrir la base avec SQLCipher
+    open_encrypted_db(&db_path, &db_key)
+}
 
 /// Informations du vault (vault.json)
 #[derive(Deserialize, Debug)]
@@ -316,6 +446,43 @@ pub fn encrypt_field_value(plaintext: &str, uuid: &str) -> Result<(String, Vec<u
 // =========================================================================
 // Fonctions de haut niveau pour les commandes Tauri
 // =========================================================================
+
+/// Parametres de connexion au vault (local ou WebDAV)
+pub struct VaultConfig<'a> {
+    /// Chemin local du vault (mode local)
+    pub vault_path: &'a str,
+    /// Mode : "webdav" ou "" (local)
+    pub mode: &'a str,
+    /// URL WebDAV (mode webdav)
+    pub webdav_url: &'a str,
+    /// Nom d'utilisateur pCloud (mode webdav)
+    pub pcloud_username: &'a str,
+    /// Mot de passe pCloud (mode webdav)
+    pub pcloud_password: &'a str,
+}
+
+/// Ouvre le vault en mode automatique (local ou WebDAV selon la config)
+fn open_vault_auto(config: &VaultConfig, master_password: &str) -> Result<Connection, String> {
+    if config.mode == "webdav" {
+        if config.webdav_url.is_empty() {
+            return Err("URL WebDAV non configuree. Allez dans Parametres > Enpass.".to_string());
+        }
+        if config.pcloud_username.is_empty() || config.pcloud_password.is_empty() {
+            return Err(
+                "Identifiants pCloud requis pour le mode WebDAV. Allez dans Parametres > Enpass."
+                    .to_string(),
+            );
+        }
+        open_vault_webdav(
+            config.webdav_url,
+            config.pcloud_username,
+            config.pcloud_password,
+            master_password,
+        )
+    } else {
+        open_vault(config.vault_path, master_password)
+    }
+}
 
 /// Liste les entrees du vault correspondant a un filtre
 pub fn list_entries(
@@ -691,6 +858,134 @@ pub fn check_setup(vault_path: &str, master_password: &str) -> Result<(), String
     Ok(())
 }
 
+/// Diagnostic : cherche une entree par titre et retourne les informations de debug
+/// Utile pour comprendre pourquoi une entree n'est pas trouvee
+pub fn debug_search(
+    vault_path: &str,
+    search_term: &str,
+    master_password: &str,
+) -> Result<String, String> {
+    let conn = open_vault(vault_path, master_password)?;
+
+    let search_lower = search_term.to_lowercase();
+    let mut debug_info = Vec::new();
+
+    // 1. Compter le nombre total d'items non supprimes
+    let total_items: i64 = conn
+        .query_row("SELECT count(*) FROM item WHERE deleted = 0", [], |row| {
+            row.get(0)
+        })
+        .unwrap_or(0);
+    debug_info.push(format!("Total items dans le vault: {}", total_items));
+
+    // 2. Chercher les items dont le titre contient le terme de recherche (recherche Rust, pas SQL)
+    let mut stmt = conn
+        .prepare(
+            "SELECT uuid, title, subtitle, category, trashed, deleted FROM item WHERE deleted = 0",
+        )
+        .map_err(|e| format!("Erreur: {}", e))?;
+
+    let items: Vec<(String, String, String, String, i64, i64)> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+            ))
+        })
+        .map_err(|e| format!("Erreur: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // 3. Chercher les correspondances
+    let mut matches = Vec::new();
+    for (uuid, title, subtitle, category, trashed, _deleted) in &items {
+        let title_lower = title.to_lowercase();
+        let subtitle_lower = subtitle.to_lowercase();
+        if title_lower.contains(&search_lower) || subtitle_lower.contains(&search_lower) {
+            matches.push(format!(
+                "  MATCH: title='{}', subtitle='{}', category='{}', trashed={}, uuid={}",
+                title, subtitle, category, trashed, uuid
+            ));
+
+            // Verifier les champs itemfield pour cette entree
+            let mut field_stmt = conn
+                .prepare("SELECT type, sensitive, label, length(value) FROM itemfield WHERE item_uuid = ?1 AND deleted = 0")
+                .map_err(|e| format!("Erreur: {}", e))?;
+
+            let fields: Vec<String> = field_stmt
+                .query_map([uuid], |row| {
+                    let ft: String = row.get(0)?;
+                    let sens: i64 = row.get(1)?;
+                    let label: String = row.get(2)?;
+                    let val_len: i64 = row.get(3)?;
+                    Ok(format!(
+                        "    field: type='{}', sensitive={}, label='{}', value_len={}",
+                        ft, sens, label, val_len
+                    ))
+                })
+                .map_err(|e| format!("Erreur: {}", e))?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            for f in fields {
+                matches.push(f);
+            }
+        }
+    }
+
+    if matches.is_empty() {
+        debug_info.push(format!("Aucune correspondance pour '{}'", search_term));
+
+        // Montrer les 10 premiers titres pour aider
+        debug_info.push("Premiers titres dans le vault:".to_string());
+        for (_, title, subtitle, category, trashed, _) in items.iter().take(20) {
+            debug_info.push(format!(
+                "  - '{}' (subtitle='{}', cat='{}', trashed={})",
+                title, subtitle, category, trashed
+            ));
+        }
+    } else {
+        debug_info.push(format!("Correspondances trouvees ({}):", matches.len()));
+        debug_info.extend(matches);
+    }
+
+    // 4. Tester aussi la recherche SQL comme le fait get_password
+    let sql_test = conn.query_row(
+        r#"
+        SELECT item.uuid, itemfield.type, itemfield.sensitive
+        FROM item
+        INNER JOIN itemfield ON item.uuid = itemfield.item_uuid
+        WHERE item.deleted = 0
+          AND item.trashed = 0
+          AND itemfield.type = 'password'
+          AND itemfield.sensitive = 1
+          AND (instr(lower(item.title), ?1) > 0 OR instr(lower(item.subtitle), ?1) > 0)
+        LIMIT 1
+        "#,
+        [&search_lower],
+        |row| {
+            let uuid: String = row.get(0)?;
+            let ft: String = row.get(1)?;
+            let sens: i64 = row.get(2)?;
+            Ok(format!(
+                "SQL match: uuid={}, type={}, sensitive={}",
+                uuid, ft, sens
+            ))
+        },
+    );
+
+    match sql_test {
+        Ok(info) => debug_info.push(format!("Requete SQL get_password: OK - {}", info)),
+        Err(e) => debug_info.push(format!("Requete SQL get_password: ECHEC - {}", e)),
+    }
+
+    Ok(debug_info.join("\n"))
+}
+
 /// Detecte automatiquement le(s) vault(s) Enpass sur la machine
 ///
 /// Cherche dans les emplacements standards :
@@ -779,6 +1074,461 @@ pub fn detect_vaults() -> Vec<String> {
     }
 
     vaults
+}
+
+// =========================================================================
+// Fonctions avec VaultConfig (supportent local + WebDAV)
+// =========================================================================
+
+/// Liste les entrees du vault correspondant a un filtre (mode auto)
+pub fn list_entries_with_config(
+    config: &VaultConfig,
+    filter: &str,
+    master_password: &str,
+) -> Result<Vec<EnpassEntry>, String> {
+    let conn = open_vault_auto(config, master_password)?;
+    list_entries_from_conn(&conn, filter)
+}
+
+/// Recupere le mot de passe d'une entree par son titre (mode auto)
+pub fn get_password_with_config(
+    config: &VaultConfig,
+    entry_name: &str,
+    master_password: &str,
+) -> Result<String, String> {
+    let conn = open_vault_auto(config, master_password)?;
+    get_password_from_conn(&conn, entry_name)
+}
+
+/// Recupere les details d'une entree (mode auto)
+pub fn show_entry_with_config(
+    config: &VaultConfig,
+    entry_name: &str,
+    master_password: &str,
+) -> Result<String, String> {
+    let conn = open_vault_auto(config, master_password)?;
+    show_entry_from_conn(&conn, entry_name)
+}
+
+/// Cree une nouvelle entree dans le vault (mode auto)
+/// Note : l'ecriture n'est PAS supportee en mode WebDAV (lecture seule)
+pub fn create_entry_with_config(
+    config: &VaultConfig,
+    title: &str,
+    login: &str,
+    password: &str,
+    url: &str,
+    master_password: &str,
+) -> Result<String, String> {
+    if config.mode == "webdav" {
+        return Err("La creation d'entrees n'est pas supportee en mode WebDAV (lecture seule). Creez vos entrees directement dans Enpass.".to_string());
+    }
+    create_entry(
+        config.vault_path,
+        title,
+        login,
+        password,
+        url,
+        master_password,
+    )
+}
+
+/// Verifie que le vault est accessible (mode auto)
+pub fn check_setup_with_config(config: &VaultConfig, master_password: &str) -> Result<(), String> {
+    let conn = open_vault_auto(config, master_password)?;
+
+    // Verifier que la table item existe
+    let table_name: String = conn
+        .query_row(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='item'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| "Table 'item' introuvable dans le vault".to_string())?;
+
+    if table_name != "item" {
+        return Err("Structure du vault invalide".to_string());
+    }
+
+    Ok(())
+}
+
+/// Diagnostic de recherche (mode auto)
+pub fn debug_search_with_config(
+    config: &VaultConfig,
+    search_term: &str,
+    master_password: &str,
+) -> Result<String, String> {
+    let conn = open_vault_auto(config, master_password)?;
+    debug_search_from_conn(&conn, search_term)
+}
+
+/// Synchronise le vault WebDAV (force le re-telechargement)
+pub fn sync_webdav_vault(
+    webdav_url: &str,
+    pcloud_username: &str,
+    pcloud_password: &str,
+) -> Result<String, String> {
+    // Invalider le cache pour forcer le telechargement
+    invalidate_webdav_cache();
+
+    let db_path = download_vault_from_webdav(webdav_url, pcloud_username, pcloud_password)?;
+
+    // Verifier la taille du fichier telecharge
+    let metadata = fs::metadata(&db_path)
+        .map_err(|e| format!("Erreur lecture metadata du vault telecharge: {}", e))?;
+
+    Ok(format!(
+        "Vault telecharge avec succes ({:.1} Ko)",
+        metadata.len() as f64 / 1024.0
+    ))
+}
+
+// =========================================================================
+// Fonctions internes operant sur une Connection deja ouverte
+// =========================================================================
+
+/// Liste les entrees depuis une connexion deja ouverte
+fn list_entries_from_conn(conn: &Connection, filter: &str) -> Result<Vec<EnpassEntry>, String> {
+    let filter_lower = filter.to_lowercase();
+    let has_filter = !filter_lower.is_empty();
+
+    let query = r#"
+        SELECT item.uuid, item.title, item.subtitle, item.note,
+               item.category, item.trashed, item.deleted,
+               itemfield.label, itemfield.type, itemfield.sensitive,
+               itemfield.value, item.key
+        FROM item
+        INNER JOIN itemfield ON item.uuid = itemfield.item_uuid
+        WHERE item.deleted = 0
+    "#;
+
+    let mut stmt = conn
+        .prepare(query)
+        .map_err(|e| format!("Erreur preparation requete: {}", e))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            let uuid: String = row.get(0)?;
+            let title: String = row.get(1)?;
+            let subtitle: String = row.get(2)?;
+            let note: String = row.get(3)?;
+            let category: String = row.get(4)?;
+            let trashed: i64 = row.get(5)?;
+            let deleted: i64 = row.get(6)?;
+            let label: String = row.get(7)?;
+            let field_type: String = row.get(8)?;
+            let sensitive: bool = row.get::<_, i64>(9)? != 0;
+            let raw_value: String = row.get(10)?;
+            let item_key: Vec<u8> = row.get(11)?;
+
+            Ok((
+                uuid, title, subtitle, note, category, trashed, deleted, label, field_type,
+                sensitive, raw_value, item_key,
+            ))
+        })
+        .map_err(|e| format!("Erreur execution requete: {}", e))?;
+
+    let mut entries = Vec::new();
+
+    for row_result in rows {
+        let (
+            uuid,
+            title,
+            subtitle,
+            note,
+            category,
+            trashed,
+            deleted,
+            label,
+            field_type,
+            sensitive,
+            raw_value,
+            item_key,
+        ) = row_result.map_err(|e| format!("Erreur lecture ligne: {}", e))?;
+
+        if has_filter {
+            let title_lower = title.to_lowercase();
+            let subtitle_lower = subtitle.to_lowercase();
+            if !title_lower.contains(&filter_lower) && !subtitle_lower.contains(&filter_lower) {
+                continue;
+            }
+        }
+
+        let value = if field_type == "password" && sensitive && !raw_value.is_empty() {
+            decrypt_field_value(&item_key, &raw_value, &uuid).unwrap_or_default()
+        } else {
+            raw_value
+        };
+
+        entries.push(EnpassEntry {
+            uuid,
+            title,
+            subtitle,
+            note,
+            category,
+            trashed,
+            deleted,
+            label,
+            field_type,
+            sensitive,
+            value,
+        });
+    }
+
+    Ok(entries)
+}
+
+/// Recupere le mot de passe d'une entree depuis une connexion deja ouverte
+fn get_password_from_conn(conn: &Connection, entry_name: &str) -> Result<String, String> {
+    let entry_lower = entry_name.to_lowercase();
+
+    let query = r#"
+        SELECT item.uuid, itemfield.value, item.key
+        FROM item
+        INNER JOIN itemfield ON item.uuid = itemfield.item_uuid
+        WHERE item.deleted = 0
+          AND item.trashed = 0
+          AND itemfield.type = 'password'
+          AND itemfield.sensitive = 1
+          AND (instr(lower(item.title), ?1) > 0 OR instr(lower(item.subtitle), ?1) > 0)
+        LIMIT 1
+    "#;
+
+    let mut stmt = conn
+        .prepare(query)
+        .map_err(|e| format!("Erreur preparation requete: {}", e))?;
+
+    let result = stmt
+        .query_row([&entry_lower], |row| {
+            let uuid: String = row.get(0)?;
+            let value_hex: String = row.get(1)?;
+            let item_key: Vec<u8> = row.get(2)?;
+            Ok((uuid, value_hex, item_key))
+        })
+        .map_err(|_| format!("Entree '{}' non trouvee dans le vault", entry_name))?;
+
+    let (uuid, value_hex, item_key) = result;
+    decrypt_field_value(&item_key, &value_hex, &uuid)
+}
+
+/// Recupere les details d'une entree depuis une connexion deja ouverte
+fn show_entry_from_conn(conn: &Connection, entry_name: &str) -> Result<String, String> {
+    let entry_lower = entry_name.to_lowercase();
+
+    let uuid: String = conn
+        .query_row(
+            r#"
+            SELECT uuid FROM item
+            WHERE deleted = 0 AND trashed = 0
+              AND (instr(lower(title), ?1) > 0 OR instr(lower(subtitle), ?1) > 0)
+            LIMIT 1
+            "#,
+            [&entry_lower],
+            |row| row.get(0),
+        )
+        .map_err(|_| format!("Entree '{}' non trouvee", entry_name))?;
+
+    let item_key: Vec<u8> = conn
+        .query_row("SELECT key FROM item WHERE uuid = ?1", [&uuid], |row| {
+            row.get(0)
+        })
+        .map_err(|e| format!("Erreur lecture cle item: {}", e))?;
+
+    let title: String = conn
+        .query_row("SELECT title FROM item WHERE uuid = ?1", [&uuid], |row| {
+            row.get(0)
+        })
+        .unwrap_or_default();
+
+    let subtitle: String = conn
+        .query_row(
+            "SELECT subtitle FROM item WHERE uuid = ?1",
+            [&uuid],
+            |row| row.get(0),
+        )
+        .unwrap_or_default();
+
+    let note: String = conn
+        .query_row("SELECT note FROM item WHERE uuid = ?1", [&uuid], |row| {
+            row.get(0)
+        })
+        .unwrap_or_default();
+
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT type, value, sensitive, label
+            FROM itemfield
+            WHERE item_uuid = ?1 AND deleted = 0
+            "#,
+        )
+        .map_err(|e| format!("Erreur preparation requete champs: {}", e))?;
+
+    let fields = stmt
+        .query_map([&uuid], |row| {
+            let field_type: String = row.get(0)?;
+            let value: String = row.get(1)?;
+            let sensitive: bool = row.get::<_, i64>(2)? != 0;
+            let label: String = row.get(3)?;
+            Ok((field_type, value, sensitive, label))
+        })
+        .map_err(|e| format!("Erreur lecture champs: {}", e))?;
+
+    let mut json_obj = serde_json::Map::new();
+    json_obj.insert("uuid".into(), serde_json::Value::String(uuid.clone()));
+    json_obj.insert("title".into(), serde_json::Value::String(title));
+    json_obj.insert("subtitle".into(), serde_json::Value::String(subtitle));
+    json_obj.insert("note".into(), serde_json::Value::String(note));
+
+    for field_result in fields {
+        let (field_type, raw_value, sensitive, label) =
+            field_result.map_err(|e| format!("Erreur iteration champs: {}", e))?;
+
+        let decrypted = if field_type == "password" && sensitive && !raw_value.is_empty() {
+            decrypt_field_value(&item_key, &raw_value, &uuid).unwrap_or_default()
+        } else {
+            raw_value
+        };
+
+        let key = if !label.is_empty() {
+            label
+        } else {
+            field_type.clone()
+        };
+
+        let normalized_key = match key.as_str() {
+            "username" | "Username" | "E-mail" | "email" => "login".to_string(),
+            "password" | "Password" => "password".to_string(),
+            "url" | "URL" => "url".to_string(),
+            other => other.to_string(),
+        };
+
+        json_obj.insert(normalized_key, serde_json::Value::String(decrypted));
+    }
+
+    serde_json::to_string(&json_obj).map_err(|e| format!("Erreur serialisation JSON: {}", e))
+}
+
+/// Diagnostic de recherche depuis une connexion deja ouverte
+fn debug_search_from_conn(conn: &Connection, search_term: &str) -> Result<String, String> {
+    let search_lower = search_term.to_lowercase();
+    let mut debug_info = Vec::new();
+
+    // 1. Compter le nombre total d'items non supprimes
+    let total_items: i64 = conn
+        .query_row("SELECT count(*) FROM item WHERE deleted = 0", [], |row| {
+            row.get(0)
+        })
+        .unwrap_or(0);
+    debug_info.push(format!("Total items dans le vault: {}", total_items));
+
+    // 2. Chercher les items dont le titre contient le terme de recherche (recherche Rust, pas SQL)
+    let mut stmt = conn
+        .prepare(
+            "SELECT uuid, title, subtitle, category, trashed, deleted FROM item WHERE deleted = 0",
+        )
+        .map_err(|e| format!("Erreur: {}", e))?;
+
+    let items: Vec<(String, String, String, String, i64, i64)> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+            ))
+        })
+        .map_err(|e| format!("Erreur: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // 3. Chercher les correspondances
+    let mut matches = Vec::new();
+    for (uuid, title, subtitle, category, trashed, _deleted) in &items {
+        let title_lower = title.to_lowercase();
+        let subtitle_lower = subtitle.to_lowercase();
+        if title_lower.contains(&search_lower) || subtitle_lower.contains(&search_lower) {
+            matches.push(format!(
+                "  MATCH: title='{}', subtitle='{}', category='{}', trashed={}, uuid={}",
+                title, subtitle, category, trashed, uuid
+            ));
+
+            // Verifier les champs itemfield pour cette entree
+            let mut field_stmt = conn
+                .prepare("SELECT type, sensitive, label, length(value) FROM itemfield WHERE item_uuid = ?1 AND deleted = 0")
+                .map_err(|e| format!("Erreur: {}", e))?;
+
+            let fields: Vec<String> = field_stmt
+                .query_map([uuid], |row| {
+                    let ft: String = row.get(0)?;
+                    let sens: i64 = row.get(1)?;
+                    let label: String = row.get(2)?;
+                    let val_len: i64 = row.get(3)?;
+                    Ok(format!(
+                        "    field: type='{}', sensitive={}, label='{}', value_len={}",
+                        ft, sens, label, val_len
+                    ))
+                })
+                .map_err(|e| format!("Erreur: {}", e))?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            for f in fields {
+                matches.push(f);
+            }
+        }
+    }
+
+    if matches.is_empty() {
+        debug_info.push(format!("Aucune correspondance pour '{}'", search_term));
+
+        // Montrer les 20 premiers titres pour aider
+        debug_info.push("Premiers titres dans le vault:".to_string());
+        for (_, title, subtitle, category, trashed, _) in items.iter().take(20) {
+            debug_info.push(format!(
+                "  - '{}' (subtitle='{}', cat='{}', trashed={})",
+                title, subtitle, category, trashed
+            ));
+        }
+    } else {
+        debug_info.push(format!("Correspondances trouvees ({}):", matches.len()));
+        debug_info.extend(matches);
+    }
+
+    // 4. Tester aussi la recherche SQL comme le fait get_password
+    let sql_test = conn.query_row(
+        r#"
+        SELECT item.uuid, itemfield.type, itemfield.sensitive
+        FROM item
+        INNER JOIN itemfield ON item.uuid = itemfield.item_uuid
+        WHERE item.deleted = 0
+          AND item.trashed = 0
+          AND itemfield.type = 'password'
+          AND itemfield.sensitive = 1
+          AND (instr(lower(item.title), ?1) > 0 OR instr(lower(item.subtitle), ?1) > 0)
+        LIMIT 1
+        "#,
+        [&search_lower],
+        |row| {
+            let uuid: String = row.get(0)?;
+            let ft: String = row.get(1)?;
+            let sens: i64 = row.get(2)?;
+            Ok(format!(
+                "SQL match: uuid={}, type={}, sensitive={}",
+                uuid, ft, sens
+            ))
+        },
+    );
+
+    match sql_test {
+        Ok(info) => debug_info.push(format!("Requete SQL get_password: OK - {}", info)),
+        Err(e) => debug_info.push(format!("Requete SQL get_password: ECHEC - {}", e)),
+    }
+
+    Ok(debug_info.join("\n"))
 }
 
 /// Genere un UUID v4 simple (sans dependance externe)

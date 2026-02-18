@@ -201,6 +201,18 @@ pub struct AppSettings {
     /// Utiliser un mot de passe Enpass distinct du mot de passe maitre Cockpit
     #[serde(default)]
     pub enpass_use_separate_password: bool,
+
+    /// Mode de stockage du vault Enpass : "local" (defaut) ou "webdav"
+    #[serde(default)]
+    pub enpass_vault_mode: String,
+
+    /// URL WebDAV du vault Enpass (ex: https://ewebdav.pcloud.com/Enpass/)
+    #[serde(default)]
+    pub enpass_webdav_url: String,
+
+    /// Nom d'utilisateur pCloud (email) pour l'authentification WebDAV
+    #[serde(default)]
+    pub enpass_pcloud_username: String,
 }
 
 impl Default for AppSettings {
@@ -212,6 +224,9 @@ impl Default for AppSettings {
             enpass_cli_path: String::new(),
             enpass_vault_path: String::new(),
             enpass_use_separate_password: false,
+            enpass_vault_mode: String::new(),
+            enpass_webdav_url: String::new(),
+            enpass_pcloud_username: String::new(),
         }
     }
 }

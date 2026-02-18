@@ -14,12 +14,13 @@ interface SiteDetailProps {
   site: Site;
   settings: AppSettings;
   enpassMasterPassword: string;
+  pcloudPassword?: string;
   onBack: () => void;
   onUpdate: (site: Site) => void;
   onDelete: (siteId: string) => void;
 }
 
-export const SiteDetail: React.FC<SiteDetailProps> = ({ site, settings, enpassMasterPassword, onBack, onUpdate, onDelete }) => {
+export const SiteDetail: React.FC<SiteDetailProps> = ({ site, settings, enpassMasterPassword, pcloudPassword, onBack, onUpdate, onDelete }) => {
   const [showPhpMyAdminModal, setShowPhpMyAdminModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showChecklistModal, setShowChecklistModal] = useState(false);
@@ -98,7 +99,9 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, settings, enpassMa
       const result = await copyPasswordToClipboard(
         settings.enpass_vault_path,
         entryRef,
-        enpassMasterPassword
+        enpassMasterPassword,
+        settings,
+        pcloudPassword
       );
       showEnpassMessage(result.message);
     } catch (err) {
@@ -121,7 +124,9 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, settings, enpassMa
       const result = await copyLoginToClipboard(
         settings.enpass_vault_path,
         entryRef,
-        enpassMasterPassword
+        enpassMasterPassword,
+        settings,
+        pcloudPassword
       );
       showEnpassMessage(result.message);
     } catch (err) {

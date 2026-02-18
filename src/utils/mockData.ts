@@ -282,6 +282,9 @@ export function getMockData(): AppData {
       backup_keep_days: 30,
       enpass_vault_path: '',
       enpass_use_separate_password: false,
+      enpass_vault_mode: '',
+      enpass_webdav_url: '',
+      enpass_pcloud_username: '',
     },
   };
 }

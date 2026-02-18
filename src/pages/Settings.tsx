@@ -3,7 +3,7 @@ import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { changePassword, getDataLocation, setDataLocation } from '../utils/tauri';
 import { exportToExcel, downloadTemplate, importFromExcel } from '../utils/importExport';
-import { checkSetup } from '../utils/enpass';
+import { checkSetup, syncWebDav, debugSearch } from '../utils/enpass';
 import { invoke } from '@tauri-apps/api/tauri';
 import { open } from '@tauri-apps/api/dialog';
 import { AppData, Site } from '../types';
@@ -18,9 +18,11 @@ interface SettingsProps {
   password: string;
   enpassSeparatePassword: string;
   onEnpassSeparatePasswordChange: (password: string) => void;
+  pcloudPassword: string;
+  onPcloudPasswordChange: (password: string) => void;
 }
 
-export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, appData, onDataChange, onImportSites, password, enpassSeparatePassword, onEnpassSeparatePasswordChange }) => {
+export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, appData, onDataChange, onImportSites, password, enpassSeparatePassword, onEnpassSeparatePasswordChange, pcloudPassword, onPcloudPasswordChange }) => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,6 +36,13 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
   // Enpass
   const [enpassTestLoading, setEnpassTestLoading] = useState(false);
   const [enpassTestResult, setEnpassTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Debug search
+  const [debugSearchTerm, setDebugSearchTerm] = useState('');
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugResult, setDebugResult] = useState<{ success: boolean; message: string; data?: string } | null>(null);
 
   // Gestion de l'emplacement des donnees
   const [dataLocation, setDataLocationState] = useState<string>('');
@@ -150,6 +159,8 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
     }
   };
 
+  const isWebDavMode = appData.settings.enpass_vault_mode === 'webdav';
+
   const handleEnpassTest = async () => {
     setEnpassTestLoading(true);
     setEnpassTestResult(null);
@@ -169,17 +180,36 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
         return;
       }
 
-      if (!appData.settings.enpass_vault_path) {
-        setEnpassTestResult({
-          success: false,
-          message: 'Veuillez indiquer le chemin vers le vault Enpass.',
-        });
-        return;
+      if (isWebDavMode) {
+        if (!appData.settings.enpass_webdav_url) {
+          setEnpassTestResult({
+            success: false,
+            message: 'Veuillez indiquer l\'URL WebDAV pCloud.',
+          });
+          return;
+        }
+        if (!appData.settings.enpass_pcloud_username || !pcloudPassword) {
+          setEnpassTestResult({
+            success: false,
+            message: 'Veuillez renseigner votre email pCloud et votre mot de passe pCloud.',
+          });
+          return;
+        }
+      } else {
+        if (!appData.settings.enpass_vault_path) {
+          setEnpassTestResult({
+            success: false,
+            message: 'Veuillez indiquer le chemin vers le vault Enpass.',
+          });
+          return;
+        }
       }
 
       const result = await checkSetup(
         appData.settings.enpass_vault_path,
-        effectivePassword
+        effectivePassword,
+        appData.settings,
+        pcloudPassword
       );
       setEnpassTestResult(result);
     } catch (err) {
@@ -189,6 +219,73 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
       });
     } finally {
       setEnpassTestLoading(false);
+    }
+  };
+
+  const handleSyncWebDav = async () => {
+    setSyncLoading(true);
+    setSyncResult(null);
+
+    try {
+      if (!appData.settings.enpass_webdav_url) {
+        setSyncResult({ success: false, message: 'URL WebDAV non configuree.' });
+        return;
+      }
+      if (!appData.settings.enpass_pcloud_username || !pcloudPassword) {
+        setSyncResult({ success: false, message: 'Identifiants pCloud requis.' });
+        return;
+      }
+
+      const result = await syncWebDav(
+        appData.settings.enpass_webdav_url,
+        appData.settings.enpass_pcloud_username,
+        pcloudPassword
+      );
+      setSyncResult(result);
+    } catch (err) {
+      setSyncResult({
+        success: false,
+        message: `Erreur: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const handleDebugSearch = async () => {
+    if (!debugSearchTerm.trim()) return;
+
+    setDebugLoading(true);
+    setDebugResult(null);
+
+    try {
+      const effectivePassword = appData.settings.enpass_use_separate_password
+        ? enpassSeparatePassword
+        : password;
+
+      if (!effectivePassword) {
+        setDebugResult({
+          success: false,
+          message: 'Mot de passe Enpass requis.',
+        });
+        return;
+      }
+
+      const result = await debugSearch(
+        appData.settings.enpass_vault_path,
+        debugSearchTerm,
+        effectivePassword,
+        appData.settings,
+        pcloudPassword
+      );
+      setDebugResult(result);
+    } catch (err) {
+      setDebugResult({
+        success: false,
+        message: `Erreur: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    } finally {
+      setDebugLoading(false);
     }
   };
 
@@ -334,59 +431,116 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
             <h3>Configuration du vault Enpass</h3>
             <p className="settings-description">
               Cockpit lit directement votre vault Enpass (pas besoin d'installer enpass-cli).
-              Indiquez le dossier contenant votre vault (vault.enpassdb + vault.json).
             </p>
 
             <div className="enpass-config">
+              {/* Selecteur de mode */}
               <div className="form-group">
-                <label>Chemin vers le vault Enpass</label>
-                <div className="input-with-browse">
-                  <input
-                    type="text"
-                    value={appData.settings.enpass_vault_path}
-                    onChange={(e) => {
-                      onDataChange({
-                        ...appData,
-                        settings: { ...appData.settings, enpass_vault_path: e.target.value }
-                      });
-                    }}
-                    placeholder="Cliquez 'Detecter' ou 'Parcourir'"
-                    className="settings-input"
-                  />
-                  <Button
-                    variant="secondary"
-                    onClick={async () => {
-                      try {
-                        // Detection automatique
-                        const vaults = await invoke<string[]>('enpass_detect_vaults');
-                        if (vaults.length === 1) {
-                          onDataChange({
-                            ...appData,
-                            settings: { ...appData.settings, enpass_vault_path: vaults[0] }
-                          });
-                        } else if (vaults.length > 1) {
-                          // Plusieurs vaults trouves, prendre le "primary" si dispo
-                          const primary = vaults.find(v => v.includes('primary')) ?? vaults[0];
-                          onDataChange({
-                            ...appData,
-                            settings: { ...appData.settings, enpass_vault_path: primary }
-                          });
-                        } else {
-                          // Aucun vault trouve, fallback sur le file picker
-                          const selected = await open({
-                            directory: true,
-                            multiple: false,
-                            title: 'Selectionner le dossier du vault Enpass',
-                          });
-                          if (selected && typeof selected === 'string') {
+                <label>Mode de stockage du vault</label>
+                <div className="vault-mode-selector">
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="vault-mode"
+                      value=""
+                      checked={!isWebDavMode}
+                      onChange={() => {
+                        onDataChange({
+                          ...appData,
+                          settings: { ...appData.settings, enpass_vault_mode: '' }
+                        });
+                        setEnpassTestResult(null);
+                      }}
+                    />
+                    Local (vault sur ce PC)
+                  </label>
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="vault-mode"
+                      value="webdav"
+                      checked={isWebDavMode}
+                      onChange={() => {
+                        onDataChange({
+                          ...appData,
+                          settings: { ...appData.settings, enpass_vault_mode: 'webdav' }
+                        });
+                        setEnpassTestResult(null);
+                      }}
+                    />
+                    pCloud WebDAV (vault dans le cloud)
+                  </label>
+                </div>
+              </div>
+
+              {/* Mode Local */}
+              {!isWebDavMode && (
+                <div className="form-group">
+                  <label>Chemin vers le vault Enpass</label>
+                  <div className="input-with-browse">
+                    <input
+                      type="text"
+                      value={appData.settings.enpass_vault_path}
+                      onChange={(e) => {
+                        onDataChange({
+                          ...appData,
+                          settings: { ...appData.settings, enpass_vault_path: e.target.value }
+                        });
+                      }}
+                      placeholder="Cliquez 'Detecter' ou 'Parcourir'"
+                      className="settings-input"
+                    />
+                    <Button
+                      variant="secondary"
+                      onClick={async () => {
+                        try {
+                          const vaults = await invoke<string[]>('enpass_detect_vaults');
+                          if (vaults.length === 1) {
                             onDataChange({
                               ...appData,
-                              settings: { ...appData.settings, enpass_vault_path: selected }
+                              settings: { ...appData.settings, enpass_vault_path: vaults[0] }
                             });
+                          } else if (vaults.length > 1) {
+                            const primary = vaults.find(v => v.includes('primary')) ?? vaults[0];
+                            onDataChange({
+                              ...appData,
+                              settings: { ...appData.settings, enpass_vault_path: primary }
+                            });
+                          } else {
+                            const selected = await open({
+                              directory: true,
+                              multiple: false,
+                              title: 'Selectionner le dossier du vault Enpass',
+                            });
+                            if (selected && typeof selected === 'string') {
+                              onDataChange({
+                                ...appData,
+                                settings: { ...appData.settings, enpass_vault_path: selected }
+                              });
+                            }
                           }
+                        } catch {
+                          try {
+                            const selected = await open({
+                              directory: true,
+                              multiple: false,
+                              title: 'Selectionner le dossier du vault Enpass',
+                            });
+                            if (selected && typeof selected === 'string') {
+                              onDataChange({
+                                ...appData,
+                                settings: { ...appData.settings, enpass_vault_path: selected }
+                              });
+                            }
+                          } catch { /* annule */ }
                         }
-                      } catch {
-                        // Fallback: ouvrir le file picker
+                      }}
+                    >
+                      Detecter
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={async () => {
                         try {
                           const selected = await open({
                             directory: true,
@@ -400,35 +554,89 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
                             });
                           }
                         } catch { /* annule */ }
-                      }
-                    }}
-                  >
-                    Detecter
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={async () => {
-                      try {
-                        const selected = await open({
-                          directory: true,
-                          multiple: false,
-                          title: 'Selectionner le dossier du vault Enpass',
-                        });
-                        if (selected && typeof selected === 'string') {
-                          onDataChange({
-                            ...appData,
-                            settings: { ...appData.settings, enpass_vault_path: selected }
-                          });
-                        }
-                      } catch { /* annule */ }
-                    }}
-                  >
-                    Parcourir
-                  </Button>
+                      }}
+                    >
+                      Parcourir
+                    </Button>
+                  </div>
+                  <span className="input-info">Le dossier contenant vault.enpassdb + vault.json</span>
                 </div>
-                <span className="input-info">Le dossier contenant vault.enpassdb + vault.json (generalement dans AppData)</span>
-              </div>
+              )}
 
+              {/* Mode WebDAV / pCloud */}
+              {isWebDavMode && (
+                <>
+                  <div className="form-group">
+                    <label>URL WebDAV pCloud</label>
+                    <input
+                      type="text"
+                      value={appData.settings.enpass_webdav_url}
+                      onChange={(e) => {
+                        onDataChange({
+                          ...appData,
+                          settings: { ...appData.settings, enpass_webdav_url: e.target.value }
+                        });
+                      }}
+                      placeholder="https://ewebdav.pcloud.com/Enpass/"
+                      className="settings-input"
+                    />
+                    <span className="input-info">
+                      L'URL du dossier contenant vault.enpassdbsync sur pCloud
+                    </span>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Email pCloud</label>
+                    <input
+                      type="email"
+                      value={appData.settings.enpass_pcloud_username}
+                      onChange={(e) => {
+                        onDataChange({
+                          ...appData,
+                          settings: { ...appData.settings, enpass_pcloud_username: e.target.value }
+                        });
+                      }}
+                      placeholder="votre@email.com"
+                      className="settings-input"
+                    />
+                    <span className="input-info">
+                      Votre identifiant pCloud (sauvegarde dans les parametres)
+                    </span>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Mot de passe pCloud</label>
+                    <input
+                      type="password"
+                      value={pcloudPassword}
+                      onChange={(e) => onPcloudPasswordChange(e.target.value)}
+                      placeholder="Mot de passe de votre compte pCloud"
+                      className="settings-input"
+                    />
+                    <span className="input-info">
+                      Non sauvegarde. Demande a chaque session pour telecharger le vault.
+                    </span>
+                  </div>
+
+                  <div className="enpass-test-section">
+                    <Button
+                      variant="secondary"
+                      loading={syncLoading}
+                      onClick={handleSyncWebDav}
+                    >
+                      Synchroniser le vault depuis pCloud
+                    </Button>
+
+                    {syncResult && (
+                      <p className={syncResult.success ? 'form-success' : 'form-error'}>
+                        {syncResult.message}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Mot de passe separe Enpass */}
               <div className="form-group">
                 <label className="checkbox-label">
                   <input
@@ -482,19 +690,68 @@ export const Settings: React.FC<SettingsProps> = ({ onBack, onPasswordChanged, a
 
               {enpassTestResult && (
                 <p className={enpassTestResult.success ? 'form-success' : 'form-error'}>
-                  {enpassTestResult.success ? 'Connexion reussie ! Cockpit peut lire votre vault Enpass.' : enpassTestResult.message}
+                  {enpassTestResult.success
+                    ? (isWebDavMode
+                      ? 'Connexion reussie ! Cockpit peut lire votre vault Enpass depuis pCloud.'
+                      : 'Connexion reussie ! Cockpit peut lire votre vault Enpass.')
+                    : enpassTestResult.message}
                 </p>
+              )}
+            </div>
+
+            {/* Outil de diagnostic pour la recherche */}
+            <div className="enpass-test-section">
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  value={debugSearchTerm}
+                  onChange={(e) => setDebugSearchTerm(e.target.value)}
+                  placeholder="Ex: [CFDT-[O2]] Backend Protection"
+                  className="settings-input"
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  variant="secondary"
+                  loading={debugLoading}
+                  onClick={handleDebugSearch}
+                >
+                  Diagnostiquer
+                </Button>
+              </div>
+              <span className="input-info">
+                Entrez le nom exact d'une entree Enpass pour diagnostiquer pourquoi elle n'est pas trouvee
+              </span>
+              {debugResult && (
+                <pre className={debugResult.success ? 'form-success' : 'form-error'} style={{ whiteSpace: 'pre-wrap', fontSize: '12px', maxHeight: '300px', overflow: 'auto' }}>
+                  {debugResult.data || debugResult.message}
+                </pre>
               )}
             </div>
 
             <div className="storage-tips">
               <h4>Comment configurer :</h4>
-              <ul>
-                <li><strong>1.</strong> Cliquez <strong>Detecter</strong> pour trouver automatiquement votre vault Enpass</li>
-                <li><strong>2.</strong> Ou cliquez <strong>Parcourir</strong> pour selectionner manuellement le dossier du vault</li>
-                <li><strong>3.</strong> Si votre vault Enpass utilise un mot de passe different de Cockpit, cochez la case ci-dessus</li>
-                <li><strong>4.</strong> Cliquez <strong>Tester la connexion</strong> pour verifier</li>
-              </ul>
+              {!isWebDavMode ? (
+                <ul>
+                  <li><strong>1.</strong> Cliquez <strong>Detecter</strong> pour trouver automatiquement votre vault Enpass</li>
+                  <li><strong>2.</strong> Ou cliquez <strong>Parcourir</strong> pour selectionner manuellement le dossier du vault</li>
+                  <li><strong>3.</strong> Si votre vault Enpass utilise un mot de passe different de Cockpit, cochez la case ci-dessus</li>
+                  <li><strong>4.</strong> Cliquez <strong>Tester la connexion</strong> pour verifier</li>
+                </ul>
+              ) : (
+                <ul>
+                  <li><strong>1.</strong> Selectionnez le mode <strong>pCloud WebDAV</strong> ci-dessus</li>
+                  <li><strong>2.</strong> Entrez l'URL WebDAV (ex: <code>https://ewebdav.pcloud.com/Enpass/</code>)</li>
+                  <li><strong>3.</strong> Entrez votre email pCloud et votre mot de passe pCloud</li>
+                  <li><strong>4.</strong> Cliquez <strong>Synchroniser</strong> pour telecharger le vault</li>
+                  <li><strong>5.</strong> Si votre vault Enpass utilise un mot de passe different de Cockpit, cochez la case</li>
+                  <li><strong>6.</strong> Cliquez <strong>Tester la connexion</strong> pour verifier</li>
+                </ul>
+              )}
+              <p className="input-info" style={{ marginTop: '8px' }}>
+                {isWebDavMode
+                  ? 'Note : en mode pCloud, le vault est en lecture seule. La creation d\'entrees n\'est pas supportee.'
+                  : 'Si votre vault est stocke sur pCloud, selectionnez le mode "pCloud WebDAV".'}
+              </p>
             </div>
           </div>
         </section>

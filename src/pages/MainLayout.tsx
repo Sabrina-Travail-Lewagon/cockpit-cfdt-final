@@ -33,6 +33,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   // Mot de passe Enpass separe (session uniquement, non persiste)
   const [enpassSeparatePassword, setEnpassSeparatePassword] = useState('');
 
+  // Mot de passe pCloud (session uniquement, non persiste)
+  const [pcloudPassword, setPcloudPassword] = useState('');
+
   // Mot de passe effectif pour Enpass : utilise le mdp separe si configure, sinon le mdp Cockpit
   const effectiveEnpassPassword = appData.settings.enpass_use_separate_password && enpassSeparatePassword
     ? enpassSeparatePassword
@@ -160,12 +163,15 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             password={password}
             enpassSeparatePassword={enpassSeparatePassword}
             onEnpassSeparatePasswordChange={setEnpassSeparatePassword}
+            pcloudPassword={pcloudPassword}
+            onPcloudPasswordChange={setPcloudPassword}
           />
         ) : selectedSite ? (
           <SiteDetail
             site={selectedSite}
             settings={appData.settings}
             enpassMasterPassword={effectiveEnpassPassword}
+            pcloudPassword={pcloudPassword}
             onBack={handleBackToList}
             onUpdate={(updatedSite) => {
               const updatedData = {
@@ -196,6 +202,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           onClose={() => setShowAddModal(false)}
           settings={appData.settings}
           enpassMasterPassword={effectiveEnpassPassword}
+          pcloudPassword={pcloudPassword}
         />
       )}
     </div>
