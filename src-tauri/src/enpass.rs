@@ -506,22 +506,34 @@ fn open_encrypted_db(db_path: &Path, db_key: &[u8]) -> Result<Connection, String
     // Ne prendre que les 64 premiers caracteres hex (= 32 octets = AES-256)
     let hex_key_truncated = &hex_key[..MASTER_KEY_HEX_LENGTH];
 
+    let mut errors = Vec::new();
+
     // Essayer SQLCipher v4 d'abord (Enpass 6.8+), puis v3
     for cipher_compat in [4, 3] {
-        match try_open_db(db_path, hex_key_truncated, cipher_compat) {
-            Ok(conn) => return Ok(conn),
-            Err(_) => continue,
+        // Essayer aussi avec page_size 4096 (defaut SQLCipher 4) et 1024 (ancien)
+        for page_size in [4096, 1024] {
+            match try_open_db(db_path, hex_key_truncated, cipher_compat, page_size) {
+                Ok(conn) => return Ok(conn),
+                Err(e) => {
+                    errors.push(format!("v{}/page{}: {}", cipher_compat, page_size, e));
+                }
+            }
         }
     }
 
-    Err(
-        "Impossible d'ouvrir le vault: mot de passe incorrect ou version de base non supportee"
-            .to_string(),
-    )
+    Err(format!(
+        "Impossible d'ouvrir le vault: mot de passe incorrect ou version de base non supportee. Details: {}",
+        errors.join(" | ")
+    ))
 }
 
 /// Tente d'ouvrir la base avec une version SQLCipher specifique
-fn try_open_db(db_path: &Path, hex_key: &str, cipher_compat: u32) -> Result<Connection, String> {
+fn try_open_db(
+    db_path: &Path,
+    hex_key: &str,
+    cipher_compat: u32,
+    page_size: u32,
+) -> Result<Connection, String> {
     let conn = Connection::open(db_path).map_err(|e| format!("Erreur ouverture SQLite: {}", e))?;
 
     // Configurer la cle de chiffrement
@@ -532,6 +544,10 @@ fn try_open_db(db_path: &Path, hex_key: &str, cipher_compat: u32) -> Result<Conn
     conn.execute_batch(&format!("PRAGMA cipher_compatibility = {};", cipher_compat))
         .map_err(|e| format!("Erreur PRAGMA cipher_compatibility: {}", e))?;
 
+    // Configurer la taille de page si ce n'est pas la valeur par defaut
+    conn.execute_batch(&format!("PRAGMA cipher_page_size = {};", page_size))
+        .map_err(|e| format!("Erreur PRAGMA cipher_page_size: {}", e))?;
+
     // Verifier que la base est accessible
     let test: Result<i64, _> =
         conn.query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get(0));
@@ -541,8 +557,8 @@ fn try_open_db(db_path: &Path, hex_key: &str, cipher_compat: u32) -> Result<Conn
         Err(e) => {
             drop(conn);
             Err(format!(
-                "Base non lisible avec SQLCipher v{}: {}",
-                cipher_compat, e
+                "Base non lisible avec SQLCipher v{}/page{}: {}",
+                cipher_compat, page_size, e
             ))
         }
     }
