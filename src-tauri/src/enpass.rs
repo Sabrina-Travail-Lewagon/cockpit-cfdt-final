@@ -27,8 +27,9 @@ const SALT_LENGTH: usize = 16;
 /// Longueur de la cle hexadecimale pour SQLCipher (64 chars hex = 32 bytes)
 const MASTER_KEY_HEX_LENGTH: usize = 64;
 
-/// Iterations KDF par defaut quand vault.json n'est pas disponible (mode WebDAV)
-const DEFAULT_KDF_ITERATIONS: u32 = 100_000;
+/// Valeurs d'iterations KDF a essayer quand vault.json n'est pas disponible
+/// Enpass 6.0-6.7 = 100k, Enpass 6.8+ = 320k
+const KDF_ITERATIONS_TO_TRY: &[u32] = &[100_000, 320_000];
 
 // =========================================================================
 // Cache du vault telecharge depuis WebDAV (evite de retelecharger a chaque operation)
@@ -136,8 +137,13 @@ pub fn invalidate_webdav_cache() {
 
 /// Ouvre le vault Enpass depuis une URL WebDAV (pCloud)
 ///
-/// Telecharge le vault, puis l'ouvre avec les parametres KDF par defaut
-/// (pas besoin de vault.json sur le cloud)
+/// Le fichier .enpassdbsync peut contenir un header de synchronisation
+/// avant les donnees SQLCipher. On essaie plusieurs strategies :
+/// 1. Fichier brut (offset 0) avec differentes iterations KDF
+/// 2. Fichier avec header de 1024 octets (offset 1024) avec differentes iterations
+///
+/// Comme vault.json n'est pas disponible sur pCloud, on essaie aussi plusieurs
+/// nombres d'iterations PBKDF2 (100k pour Enpass <= 6.7, 320k pour 6.8+)
 pub fn open_vault_webdav(
     webdav_url: &str,
     pcloud_username: &str,
@@ -146,14 +152,127 @@ pub fn open_vault_webdav(
 ) -> Result<Connection, String> {
     let db_path = download_vault_from_webdav(webdav_url, pcloud_username, pcloud_password)?;
 
-    // 1. Extraire le sel (16 premiers octets)
-    let salt = extract_salt(&db_path)?;
+    // Lire les premiers octets du fichier pour diagnostic
+    let file_size = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
 
-    // 2. Deriver la cle via PBKDF2-HMAC-SHA512 (iterations par defaut)
-    let db_key = derive_key(master_password.as_bytes(), &salt, DEFAULT_KDF_ITERATIONS)?;
+    // Lire le header pour detecter le format
+    let header_bytes = {
+        let mut file = std::fs::File::open(&db_path)
+            .map_err(|e| format!("Erreur ouverture fichier telecharge: {}", e))?;
+        let mut buf = vec![0u8; 1088.min(file_size as usize)];
+        file.read_exact(&mut buf)
+            .map_err(|e| format!("Erreur lecture header: {}", e))?;
+        buf
+    };
 
-    // 3. Ouvrir la base avec SQLCipher
-    open_encrypted_db(&db_path, &db_key)
+    // Detecter si le fichier commence par la signature SQLite
+    // "SQLite format 3\000" (les fichiers SQLCipher chiffres NE commencent PAS par cette signature)
+    let starts_with_sqlite = header_bytes.len() >= 16 && &header_bytes[..6] == b"SQLite";
+
+    // Detecter les magic bytes connus pour les fichiers .enpassdbsync
+    // Certaines versions utilisent un header personnalise avant les donnees SQLCipher
+    // Le header peut contenir des metadonnees de sync
+
+    let mut last_error = String::new();
+    let mut errors = Vec::new();
+
+    // Si ca commence par "SQLite", c'est une base non-chiffree ou un format inattendu
+    if starts_with_sqlite {
+        errors.push(format!(
+            "Le fichier commence par la signature SQLite (non chiffre). Taille: {} octets",
+            file_size
+        ));
+    }
+
+    // Strategie 1: Fichier brut (offset 0) - le cas standard .enpassdb
+    // Le fichier .enpassdbsync pourrait etre identique a .enpassdb
+    for &iterations in KDF_ITERATIONS_TO_TRY {
+        match try_open_vault_at_offset(&db_path, master_password, 0, iterations) {
+            Ok(conn) => return Ok(conn),
+            Err(e) => {
+                errors.push(format!("offset=0, iter={}: {}", iterations, e));
+                last_error = e;
+            }
+        }
+    }
+
+    // Strategie 2: Sauter un header de 1024 octets
+    // Certaines versions d'Enpass ajoutent un header de sync avant les donnees SQLCipher
+    if file_size > 1024 {
+        let trimmed_path = db_path.with_extension("enpassdb_trimmed");
+        if let Ok(()) = extract_file_from_offset(&db_path, &trimmed_path, 1024) {
+            for &iterations in KDF_ITERATIONS_TO_TRY {
+                match try_open_vault_at_offset(&trimmed_path, master_password, 0, iterations) {
+                    Ok(conn) => return Ok(conn),
+                    Err(e) => {
+                        errors.push(format!("offset=1024, iter={}: {}", iterations, e));
+                        last_error = e;
+                    }
+                }
+            }
+        }
+    }
+
+    // Strategie 3: Chercher le debut des donnees SQLCipher dans le fichier
+    // Les fichiers SQLCipher chiffres commencent par des octets aleatoires (le sel)
+    // On cherche si le header contient des metadonnees texte suivies des donnees binaires
+    if file_size > 16 {
+        // Essayer de trouver un pattern : apres un null byte suivi de donnees non-ASCII
+        for offset in &[16u64, 32, 48, 64, 128, 256, 512] {
+            if *offset as u64 >= file_size {
+                continue;
+            }
+            let trimmed_path = db_path.with_extension(format!("trim_{}", offset));
+            if let Ok(()) = extract_file_from_offset(&db_path, &trimmed_path, *offset) {
+                for &iterations in KDF_ITERATIONS_TO_TRY {
+                    match try_open_vault_at_offset(&trimmed_path, master_password, 0, iterations) {
+                        Ok(conn) => return Ok(conn),
+                        Err(_) => continue,
+                    }
+                }
+            }
+        }
+    }
+
+    // Aucune strategie n'a fonctionne - retourner un message d'erreur detaille
+    let first_16_hex = hex::encode(&header_bytes[..16.min(header_bytes.len())]);
+    Err(format!(
+        "Impossible d'ouvrir le vault .enpassdbsync (taille: {} Ko). \
+         Premiers octets (hex): {}. \
+         Tentatives: {}",
+        file_size / 1024,
+        first_16_hex,
+        errors.join(" | ")
+    ))
+}
+
+/// Tente d'ouvrir un vault a un offset donne avec un nombre d'iterations specifique
+fn try_open_vault_at_offset(
+    db_path: &Path,
+    master_password: &str,
+    _offset: u64,
+    iterations: u32,
+) -> Result<Connection, String> {
+    let salt = extract_salt(db_path)?;
+    let db_key = derive_key(master_password.as_bytes(), &salt, iterations)?;
+    open_encrypted_db(db_path, &db_key)
+}
+
+/// Extrait une portion d'un fichier a partir d'un offset dans un nouveau fichier
+fn extract_file_from_offset(source: &Path, dest: &Path, offset: u64) -> Result<(), String> {
+    let mut src_file =
+        std::fs::File::open(source).map_err(|e| format!("Erreur ouverture source: {}", e))?;
+    use std::io::Seek;
+    src_file
+        .seek(std::io::SeekFrom::Start(offset))
+        .map_err(|e| format!("Erreur seek: {}", e))?;
+
+    let mut dest_file =
+        std::fs::File::create(dest).map_err(|e| format!("Erreur creation dest: {}", e))?;
+
+    std::io::copy(&mut src_file, &mut dest_file).map_err(|e| format!("Erreur copie: {}", e))?;
+
+    Ok(())
 }
 
 /// Informations du vault (vault.json)
@@ -1178,9 +1297,20 @@ pub fn sync_webdav_vault(
     let metadata = fs::metadata(&db_path)
         .map_err(|e| format!("Erreur lecture metadata du vault telecharge: {}", e))?;
 
+    // Lire les 16 premiers octets pour diagnostic
+    let first_bytes = {
+        let mut file = fs::File::open(&db_path).ok();
+        let mut buf = vec![0u8; 16];
+        if let Some(ref mut f) = file {
+            let _ = f.read_exact(&mut buf);
+        }
+        hex::encode(&buf)
+    };
+
     Ok(format!(
-        "Vault telecharge avec succes ({:.1} Ko)",
-        metadata.len() as f64 / 1024.0
+        "Vault telecharge avec succes ({:.1} Ko). Header: {}",
+        metadata.len() as f64 / 1024.0,
+        first_bytes
     ))
 }
 
