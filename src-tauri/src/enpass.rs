@@ -68,14 +68,94 @@ fn download_webdav_file(
         .map_err(|e| format!("Erreur lecture reponse {}: {}", url, e))
 }
 
-/// Telecharge les fichiers du vault Enpass depuis une URL WebDAV (pCloud)
+/// Separe un fichier .enpassdbsync en deux parties :
+/// - Le header JSON (metadonnees du vault, equivalent de vault.json)
+/// - Les donnees SQLCipher brutes (la base de donnees chiffree)
 ///
-/// Structure du dossier Enpass sur pCloud :
-/// - vault.enpassdbsync : fichier JSON de metadonnees (= vault.json local)
-///   contient kdf_iter, kdf_algo, etc.
-/// - vault.enpassdb : le vrai fichier SQLCipher chiffre
+/// Le format .enpassdbsync est un conteneur : JSON puis donnees binaires
+/// Le JSON se termine par le dernier `}` et les donnees SQLCipher suivent immediatement
+fn split_enpassdbsync(data: &[u8]) -> Result<(String, Vec<u8>), String> {
+    if data.is_empty() {
+        return Err("Fichier vault.enpassdbsync vide".to_string());
+    }
+
+    // Le fichier doit commencer par '{' (debut du JSON)
+    if data[0] != b'{' {
+        return Err(format!(
+            "Format inattendu: le fichier ne commence pas par '{{' (premier octet: 0x{:02x})",
+            data[0]
+        ));
+    }
+
+    // Trouver la fin du JSON en comptant les accolades
+    // On doit gerer les strings JSON qui peuvent contenir des accolades echappees
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escape_next = false;
+    let mut json_end = 0usize;
+
+    for (i, &byte) in data.iter().enumerate() {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+
+        if byte == b'\\' && in_string {
+            escape_next = true;
+            continue;
+        }
+
+        if byte == b'"' {
+            in_string = !in_string;
+            continue;
+        }
+
+        if !in_string {
+            if byte == b'{' {
+                depth += 1;
+            } else if byte == b'}' {
+                depth -= 1;
+                if depth == 0 {
+                    json_end = i + 1; // Position juste apres le '}'
+                    break;
+                }
+            }
+        }
+    }
+
+    if json_end == 0 || depth != 0 {
+        return Err(
+            "Impossible de trouver la fin du header JSON dans vault.enpassdbsync".to_string(),
+        );
+    }
+
+    let json_part = String::from_utf8_lossy(&data[..json_end]).to_string();
+    let db_part = data[json_end..].to_vec();
+
+    // Les donnees SQLCipher peuvent avoir des octets de padding entre le JSON et les donnees
+    // Ignorer les whitespace/newlines au debut des donnees binaires
+    let mut db_start = 0;
+    for &byte in db_part.iter() {
+        if byte == b' ' || byte == b'\r' || byte == b'\n' || byte == b'\t' {
+            db_start += 1;
+        } else {
+            break;
+        }
+    }
+
+    let db_data = db_part[db_start..].to_vec();
+
+    Ok((json_part, db_data))
+}
+
+/// Telecharge le vault Enpass depuis une URL WebDAV (pCloud)
 ///
-/// Retourne (chemin_db, vault_info_optionnel)
+/// Le fichier vault.enpassdbsync est un conteneur unique qui contient :
+/// 1. Un header JSON (metadonnees = kdf_algo, kdf_iter, etc.)
+/// 2. Les donnees SQLCipher brutes (la base de donnees chiffree)
+///
+/// On separe les deux parties, on ecrit les donnees SQLCipher dans un fichier
+/// temporaire, et on retourne le chemin vers ce fichier.
 fn download_vault_from_webdav(
     webdav_url: &str,
     pcloud_username: &str,
@@ -94,51 +174,52 @@ fn download_vault_from_webdav(
     }
 
     let base_url = webdav_url.trim_end_matches('/');
+    let sync_url = format!("{}/vault.enpassdbsync", base_url);
 
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| format!("Erreur creation client HTTP: {}", e))?;
 
+    // Telecharger vault.enpassdbsync (le fichier conteneur unique)
+    let raw_bytes = download_webdav_file(&client, &sync_url, pcloud_username, pcloud_password)
+        .map_err(|e| {
+            format!(
+                "Impossible de telecharger vault.enpassdbsync depuis {}. {}",
+                sync_url, e
+            )
+        })?;
+
+    if raw_bytes.is_empty() {
+        return Err("Le fichier vault.enpassdbsync telecharge est vide".to_string());
+    }
+
+    // Separer le header JSON des donnees SQLCipher
+    let (json_header, db_data) = split_enpassdbsync(&raw_bytes)?;
+
+    if db_data.is_empty() {
+        return Err(format!(
+            "Aucune donnee SQLCipher trouvee apres le header JSON ({} octets de JSON, {} octets total)",
+            json_header.len(),
+            raw_bytes.len()
+        ));
+    }
+
     let temp_dir = std::env::temp_dir().join("cockpit-enpass-webdav");
     fs::create_dir_all(&temp_dir)
         .map_err(|e| format!("Erreur creation dossier temporaire: {}", e))?;
 
-    // 1. Telecharger vault.enpassdbsync (fichier JSON de metadonnees)
-    //    C'est l'equivalent de vault.json sur le cloud
-    let sync_url = format!("{}/vault.enpassdbsync", base_url);
-    if let Ok(sync_bytes) =
-        download_webdav_file(&client, &sync_url, pcloud_username, pcloud_password)
-    {
-        if !sync_bytes.is_empty() {
-            let sync_path = temp_dir.join("vault.enpassdbsync");
-            let mut f = fs::File::create(&sync_path)
-                .map_err(|e| format!("Erreur ecriture vault.enpassdbsync: {}", e))?;
-            f.write_all(&sync_bytes)
-                .map_err(|e| format!("Erreur ecriture vault.enpassdbsync: {}", e))?;
-        }
-    }
+    // Ecrire le JSON des metadonnees
+    let json_path = temp_dir.join("vault_info.json");
+    fs::write(&json_path, &json_header)
+        .map_err(|e| format!("Erreur ecriture vault_info.json: {}", e))?;
 
-    // 2. Telecharger vault.enpassdb (le vrai fichier SQLCipher)
-    let db_url = format!("{}/vault.enpassdb", base_url);
-    let db_bytes = download_webdav_file(&client, &db_url, pcloud_username, pcloud_password)
-        .map_err(|e| {
-            format!(
-                "Impossible de telecharger vault.enpassdb depuis {}. {}. \
-             Verifiez que le dossier Enpass sur pCloud contient bien vault.enpassdb.",
-                db_url, e
-            )
-        })?;
-
-    if db_bytes.is_empty() {
-        return Err("Le fichier vault.enpassdb telecharge est vide".to_string());
-    }
-
-    let local_path = temp_dir.join("vault.enpassdb");
-    let mut file = fs::File::create(&local_path)
+    // Ecrire les donnees SQLCipher
+    let db_path = temp_dir.join("vault.enpassdb");
+    let mut file = fs::File::create(&db_path)
         .map_err(|e| format!("Erreur creation fichier temporaire: {}", e))?;
-    file.write_all(&db_bytes)
-        .map_err(|e| format!("Erreur ecriture fichier temporaire: {}", e))?;
+    file.write_all(&db_data)
+        .map_err(|e| format!("Erreur ecriture donnees SQLCipher: {}", e))?;
 
     // Mettre a jour le cache
     {
@@ -146,12 +227,12 @@ fn download_vault_from_webdav(
             .lock()
             .map_err(|_| "Erreur interne: mutex du cache WebDAV corrompu")?;
         *cache = Some(WebDavCache {
-            local_path: local_path.clone(),
+            local_path: db_path.clone(),
             source_url: webdav_url.to_string(),
         });
     }
 
-    Ok(local_path)
+    Ok(db_path)
 }
 
 /// Invalide le cache WebDAV (force un nouveau telechargement au prochain appel)
@@ -167,12 +248,13 @@ pub fn invalidate_webdav_cache() {
 
 /// Ouvre le vault Enpass depuis une URL WebDAV (pCloud)
 ///
-/// Le dossier Enpass sur pCloud contient :
-/// - vault.enpassdbsync : fichier JSON de metadonnees (equivalent de vault.json)
-/// - vault.enpassdb : le vrai fichier SQLCipher chiffre
+/// Le fichier vault.enpassdbsync sur pCloud est un conteneur unique :
+/// - Header JSON (metadonnees = kdf_algo, kdf_iter, etc.)
+/// - Donnees SQLCipher brutes
 ///
-/// On telecharge les deux, on lit les iterations KDF depuis le JSON,
-/// puis on ouvre le fichier SQLCipher normalement.
+/// download_vault_from_webdav separe les deux et ecrit :
+/// - vault_info.json (le header JSON)
+/// - vault.enpassdb (les donnees SQLCipher)
 pub fn open_vault_webdav(
     webdav_url: &str,
     pcloud_username: &str,
@@ -181,9 +263,9 @@ pub fn open_vault_webdav(
 ) -> Result<Connection, String> {
     let db_path = download_vault_from_webdav(webdav_url, pcloud_username, pcloud_password)?;
 
-    // Lire les iterations KDF depuis vault.enpassdbsync (fichier JSON) s'il existe
+    // Lire les iterations KDF depuis vault_info.json (extrait du header .enpassdbsync)
     let temp_dir = std::env::temp_dir().join("cockpit-enpass-webdav");
-    let sync_info_path = temp_dir.join("vault.enpassdbsync");
+    let sync_info_path = temp_dir.join("vault_info.json");
 
     let kdf_iterations = if sync_info_path.exists() {
         match fs::read_to_string(&sync_info_path) {
@@ -1264,29 +1346,27 @@ pub fn sync_webdav_vault(
 
     let db_path = download_vault_from_webdav(webdav_url, pcloud_username, pcloud_password)?;
 
-    // Verifier la taille du fichier SQLCipher telecharge
+    // Verifier la taille du fichier SQLCipher extrait
     let db_size = fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
 
-    // Verifier si le fichier de metadonnees a ete telecharge
+    // Lire les iterations KDF depuis vault_info.json
     let temp_dir = std::env::temp_dir().join("cockpit-enpass-webdav");
-    let sync_path = temp_dir.join("vault.enpassdbsync");
-    let has_sync_info = sync_path.exists();
+    let json_path = temp_dir.join("vault_info.json");
 
-    // Lire les iterations KDF depuis vault.enpassdbsync si disponible
-    let kdf_info = if has_sync_info {
-        match fs::read_to_string(&sync_path) {
+    let kdf_info = if json_path.exists() {
+        match fs::read_to_string(&json_path) {
             Ok(json) => match serde_json::from_str::<VaultInfo>(&json) {
                 Ok(info) => format!("KDF: {} ({} iter)", info.kdf_algo, info.kdf_iter),
-                Err(_) => "vault.enpassdbsync: JSON invalide".to_string(),
+                Err(e) => format!("JSON parse error: {}", e),
             },
-            Err(_) => "vault.enpassdbsync: illisible".to_string(),
+            Err(_) => "vault_info.json illisible".to_string(),
         }
     } else {
-        "vault.enpassdbsync non trouve".to_string()
+        "vault_info.json non trouve".to_string()
     };
 
     Ok(format!(
-        "Vault telecharge avec succes ! vault.enpassdb: {:.1} Ko. {}",
+        "Vault telecharge et extrait ! SQLCipher: {:.1} Ko. {}",
         db_size as f64 / 1024.0,
         kdf_info
     ))
