@@ -132,18 +132,24 @@ fn split_enpassdbsync(data: &[u8]) -> Result<(String, Vec<u8>), String> {
     let json_part = String::from_utf8_lossy(&data[..json_end]).to_string();
     let db_part = data[json_end..].to_vec();
 
-    // Les donnees SQLCipher peuvent avoir des octets de padding entre le JSON et les donnees
-    // Ignorer les whitespace/newlines au debut des donnees binaires
-    let mut db_start = 0;
+    // Le fichier .enpassdbsync a un bloc de padding (null bytes) entre le JSON header
+    // et les donnees SQLCipher. Le fichier SQLCipher commence typiquement a un offset
+    // aligne (1024, 2048, 4096, etc.) depuis le debut du fichier.
+    //
+    // On retourne les donnees brutes apres le JSON (y compris le padding).
+    // La fonction appelante devra gerer le padding si necessaire.
+    //
+    // On skip juste les whitespace (CR, LF, espace, tab) juste apres le JSON
+    let mut skip = 0;
     for &byte in db_part.iter() {
         if byte == b' ' || byte == b'\r' || byte == b'\n' || byte == b'\t' {
-            db_start += 1;
+            skip += 1;
         } else {
             break;
         }
     }
 
-    let db_data = db_part[db_start..].to_vec();
+    let db_data = db_part[skip..].to_vec();
 
     Ok((json_part, db_data))
 }
@@ -214,12 +220,36 @@ fn download_vault_from_webdav(
     fs::write(&json_path, &json_header)
         .map_err(|e| format!("Erreur ecriture vault_info.json: {}", e))?;
 
-    // Ecrire les donnees SQLCipher
+    // Le bloc de donnees apres le JSON commence par du padding (null bytes)
+    // suivi des donnees SQLCipher. On doit trouver ou commence le vrai SQLCipher.
+    //
+    // Un fichier SQLCipher chiffre commence par 16 octets de sel (aleatoires, non nuls).
+    // On cherche le premier octet non-nul dans les donnees pour trouver le debut.
+    //
+    // IMPORTANT: le sel pourrait contenir des 0x00, mais statistiquement le premier octet
+    // du sel est non-nul. On cherche donc le premier octet non-nul apres le padding.
+    let sqlcipher_start = db_data.iter().position(|&b| b != 0x00).unwrap_or(0);
+
+    // Stocker aussi les infos de debug
+    let padding_size = sqlcipher_start;
+    let actual_db_data = &db_data[sqlcipher_start..];
+
+    // Ecrire les donnees SQLCipher (sans le padding de zeros)
     let db_path = temp_dir.join("vault.enpassdb");
     let mut file = fs::File::create(&db_path)
         .map_err(|e| format!("Erreur creation fichier temporaire: {}", e))?;
-    file.write_all(&db_data)
+    file.write_all(actual_db_data)
         .map_err(|e| format!("Erreur ecriture donnees SQLCipher: {}", e))?;
+
+    // Ecrire les infos de debug
+    let debug_info = format!(
+        "json_size={}, padding_zeros={}, sqlcipher_size={}, total={}",
+        json_header.len(),
+        padding_size,
+        actual_db_data.len(),
+        raw_bytes.len()
+    );
+    let _ = fs::write(temp_dir.join("split_debug.txt"), &debug_info);
 
     // Mettre a jour le cache
     {
@@ -1374,18 +1404,14 @@ pub fn sync_webdav_vault(
         hex::encode(&buf)
     };
 
-    // Lire aussi la taille du JSON
-    let json_size = if json_path.exists() {
-        fs::metadata(&json_path).map(|m| m.len()).unwrap_or(0)
-    } else {
-        0
-    };
+    // Lire les infos de debug du split
+    let split_info = fs::read_to_string(temp_dir.join("split_debug.txt")).unwrap_or_default();
 
     Ok(format!(
-        "Vault telecharge et extrait ! SQLCipher: {:.1} Ko (header: {}). JSON: {} octets. {}",
+        "Vault extrait ! DB: {:.1} Ko (sel: {}). {}. {}",
         db_size as f64 / 1024.0,
         db_header,
-        json_size,
+        split_info,
         kdf_info
     ))
 }
