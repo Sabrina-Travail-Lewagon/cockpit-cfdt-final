@@ -1365,9 +1365,27 @@ pub fn sync_webdav_vault(
         "vault_info.json non trouve".to_string()
     };
 
+    // Diagnostic : lire les 16 premiers octets du fichier SQLCipher extrait
+    let db_header = {
+        let mut buf = vec![0u8; 16];
+        if let Ok(mut f) = fs::File::open(&db_path) {
+            let _ = f.read_exact(&mut buf);
+        }
+        hex::encode(&buf)
+    };
+
+    // Lire aussi la taille du JSON
+    let json_size = if json_path.exists() {
+        fs::metadata(&json_path).map(|m| m.len()).unwrap_or(0)
+    } else {
+        0
+    };
+
     Ok(format!(
-        "Vault telecharge et extrait ! SQLCipher: {:.1} Ko. {}",
+        "Vault telecharge et extrait ! SQLCipher: {:.1} Ko (header: {}). JSON: {} octets. {}",
         db_size as f64 / 1024.0,
+        db_header,
+        json_size,
         kdf_info
     ))
 }
