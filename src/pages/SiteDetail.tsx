@@ -1,6 +1,5 @@
-import { useState } from 'react';
-import { open } from '@tauri-apps/api/shell';
-import { Site, ChecklistItem, Intervention, Extension, JoomlaAccount } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Site, ChecklistItem, Intervention, Extension, JoomlaAccount, AppSettings } from '../types';
 import { Button } from '../components/Button';
 import { PhpMyAdminModal } from '../components/PhpMyAdminModal';
 import { EditSiteModal } from '../components/EditSiteModal';
@@ -8,16 +7,20 @@ import { ChecklistModal } from '../components/ChecklistModal';
 import { InterventionModal } from '../components/InterventionModal';
 import { ExtensionModal } from '../components/ExtensionModal';
 import { JoomlaAccountModal } from '../components/JoomlaAccountModal';
+import { copyPasswordToClipboard, copyLoginToClipboard } from '../utils/enpass';
 import './SiteDetail.css';
 
 interface SiteDetailProps {
   site: Site;
+  settings: AppSettings;
+  enpassMasterPassword: string;
+  pcloudPassword?: string;
   onBack: () => void;
   onUpdate: (site: Site) => void;
   onDelete: (siteId: string) => void;
 }
 
-export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, onDelete }) => {
+export const SiteDetail: React.FC<SiteDetailProps> = ({ site, settings, enpassMasterPassword, pcloudPassword, onBack, onUpdate, onDelete }) => {
   const [showPhpMyAdminModal, setShowPhpMyAdminModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showChecklistModal, setShowChecklistModal] = useState(false);
@@ -28,6 +31,20 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
   const [editingExtensionIndex, setEditingExtensionIndex] = useState<number | null>(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [editingAccountIndex, setEditingAccountIndex] = useState<number | null>(null);
+  const [enpassStatus, setEnpassStatus] = useState<string | null>(null);
+  const [enpassLoading, setEnpassLoading] = useState<string | null>(null);
+
+  // Ref pour le timer du toast enpass
+  const enpassToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup du timer au demontage
+  useEffect(() => {
+    return () => {
+      if (enpassToastTimerRef.current) {
+        clearTimeout(enpassToastTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleToggleChecklistItem = (index: number) => {
     const updatedChecklist = [...site.checklist];
@@ -44,34 +61,78 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
     });
   };
 
-  const openDashlane = async (ref: string, e?: React.MouseEvent) => {
-    if (e) {
-      e.stopPropagation(); // Empêche l'ouverture du modal d'édition
+  const showEnpassMessage = (message: string) => {
+    setEnpassStatus(message);
+    // Annuler le timer precedent
+    if (enpassToastTimerRef.current) {
+      clearTimeout(enpassToastTimerRef.current);
     }
+    const isError = !message.includes('copie');
+    enpassToastTimerRef.current = setTimeout(() => {
+      setEnpassStatus(null);
+      enpassToastTimerRef.current = null;
+    }, isError ? 5000 : 4000);
+  };
 
-    // Détecter le système d'exploitation pour adapter les raccourcis
-    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-    const modKey = isMac ? 'Cmd' : 'Ctrl';
+  const validateEnpassConfig = (): boolean => {
+    if (!settings.enpass_vault_path) {
+      showEnpassMessage('Configurez le chemin du vault Enpass dans les parametres');
+      return false;
+    }
+    if (!enpassMasterPassword) {
+      showEnpassMessage('Mot de passe Enpass requis. Configurez-le dans les parametres.');
+      return false;
+    }
+    return true;
+  };
+
+  const handleCopyPassword = async (entryRef: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    if (!validateEnpassConfig()) return;
+
+    setEnpassLoading(entryRef);
+    setEnpassStatus(null);
 
     try {
-      // Copier la référence dans le presse-papier
-      await navigator.clipboard.writeText(ref);
-
-      // Ouvrir Dashlane Web
-      const dashlaneUrl = 'https://app.dashlane.com/';
-      await open(dashlaneUrl);
-
-      // Afficher les instructions
-      console.log(`✅ Référence "${ref}" copiée dans le presse-papier`);
-      console.log(`💡 Dans Dashlane, utilisez ${modKey}+F pour ouvrir la recherche, puis ${modKey}+V pour coller`);
-      
-      // Notification visuelle temporaire
-      alert(`✅ Référence copiée : "${ref}"\n\n💡 Dans Dashlane :\n1. Appuyez sur ${modKey}+F pour ouvrir la recherche\n2. Collez avec ${modKey}+V`);
+      const result = await copyPasswordToClipboard(
+        settings.enpass_vault_path,
+        entryRef,
+        enpassMasterPassword,
+        settings,
+        pcloudPassword
+      );
+      showEnpassMessage(result.message);
     } catch (err) {
-      console.error('Erreur:', err);
-      // Fallback: essayer window.open si Tauri échoue
-      window.open('https://app.dashlane.com/', '_blank');
-      alert(`✅ Référence copiée : "${ref}"\n\n💡 Dans Dashlane :\n1. Appuyez sur ${modKey}+F pour ouvrir la recherche\n2. Collez avec ${modKey}+V`);
+      showEnpassMessage(`Erreur: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setEnpassLoading(null);
+    }
+  };
+
+  const handleCopyLogin = async (entryRef: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    if (!validateEnpassConfig()) return;
+
+    setEnpassLoading(entryRef + '_login');
+    setEnpassStatus(null);
+
+    try {
+      const result = await copyLoginToClipboard(
+        settings.enpass_vault_path,
+        entryRef,
+        enpassMasterPassword,
+        settings,
+        pcloudPassword
+      );
+      showEnpassMessage(result.message);
+    } catch (err) {
+      showEnpassMessage(`Erreur: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setEnpassLoading(null);
     }
   };
 
@@ -90,11 +151,9 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
     let updatedChecklist: ChecklistItem[];
 
     if (editingChecklistIndex !== null) {
-      // Édition
       updatedChecklist = [...site.checklist];
       updatedChecklist[editingChecklistIndex] = item;
     } else {
-      // Ajout
       updatedChecklist = [...site.checklist, item];
     }
 
@@ -133,11 +192,9 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
     let updatedInterventions: Intervention[];
 
     if (editingInterventionIndex !== null) {
-      // Édition
       updatedInterventions = [...site.interventions];
       updatedInterventions[editingInterventionIndex] = intervention;
     } else {
-      // Ajout (en début de liste pour avoir les plus récentes en premier)
       updatedInterventions = [intervention, ...site.interventions];
     }
 
@@ -177,15 +234,12 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
     let updatedExtensions: Extension[];
 
     if (editingExtensionIndex !== null) {
-      // Édition
       updatedExtensions = [...extensions];
       updatedExtensions[editingExtensionIndex] = extension;
     } else {
-      // Ajout
       updatedExtensions = [...extensions, extension];
     }
 
-    // Trier: critiques en premier, puis par nom
     updatedExtensions.sort((a, b) => {
       if (a.critical !== b.critical) return a.critical ? -1 : 1;
       return a.name.localeCompare(b.name);
@@ -255,7 +309,7 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
     setShowAccountModal(false);
   };
 
-  // Extensions triées pour l'affichage
+  // Extensions triees pour l'affichage
   const sortedExtensions = [...(site.extensions || [])].sort((a, b) => {
     if (a.critical !== b.critical) return a.critical ? -1 : 1;
     return a.name.localeCompare(b.name);
@@ -264,8 +318,30 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
   const criticalExtensions = sortedExtensions.filter(e => e.critical);
   const otherExtensions = sortedExtensions.filter(e => !e.critical);
 
+  // Trouver l'index original d'une extension par identite stricte (nom + version + critical)
+  const findOriginalExtensionIndex = (ext: Extension): number => {
+    const extensions = site.extensions || [];
+    // Chercher par reference stricte en utilisant l'index dans le tableau trie
+    // puis mapper vers l'index original
+    for (let i = 0; i < extensions.length; i++) {
+      if (
+        extensions[i].name === ext.name &&
+        extensions[i].version === ext.version &&
+        extensions[i].critical === ext.critical
+      ) {
+        return i;
+      }
+    }
+    return -1;
+  };
+
   return (
     <div className="site-detail">
+      {enpassStatus && (
+        <div className={`enpass-toast ${enpassStatus.includes('copie') ? 'success' : 'error'}`}>
+          {enpassStatus}
+        </div>
+      )}
       <div className="detail-header">
         <Button variant="ghost" onClick={onBack} icon="←">
           Retour
@@ -274,7 +350,7 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
         <div className="header-title">
           <h1>{site.name}</h1>
           <span className="site-status">
-            {site.enabled ? '✅ Actif' : '⏸️ Archivé'}
+            {site.enabled ? 'Actif' : 'Archive'}
           </span>
         </div>
 
@@ -286,7 +362,7 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
       <div className="detail-layout">
         <div className="detail-main">
           <section className="detail-section">
-            <h2>🌐 Accès Web</h2>
+            <h2>Acces Web</h2>
             <div className="access-grid">
               <div className="access-card">
                 <div className="access-label">Frontend</div>
@@ -303,9 +379,9 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
             </div>
           </section>
 
-          {(site.admintools_login || site.dashlane_refs.backend_protection) && (
+          {(site.admintools_login || site.enpass_refs.backend_protection) && (
             <section className="detail-section protection-section">
-              <h2>🛡️ Protection Backend (AdminTools)</h2>
+              <h2>Protection Backend (AdminTools)</h2>
               <div className="protection-grid">
                 {site.admintools_login && (
                   <div className="protection-item">
@@ -313,19 +389,30 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
                     <span className="protection-value">{site.admintools_login}</span>
                   </div>
                 )}
-                {site.dashlane_refs.backend_protection && (
+                {site.enpass_refs.backend_protection && (
                   <div className="protection-item with-action">
                     <div className="protection-info">
-                      <span className="protection-label">📂 Dashlane</span>
-                      <span className="protection-value">{site.dashlane_refs.backend_protection}</span>
+                      <span className="protection-label">Enpass</span>
+                      <span className="protection-value">{site.enpass_refs.backend_protection}</span>
                     </div>
-                    <button
-                      className="dashlane-btn"
-                      onClick={() => openDashlane(site.dashlane_refs.backend_protection!)}
-                      title="Copier et ouvrir Dashlane"
-                    >
-                      🔑
-                    </button>
+                    <div className="enpass-actions">
+                      <button
+                        className="enpass-btn"
+                        onClick={() => handleCopyLogin(site.enpass_refs.backend_protection!)}
+                        disabled={enpassLoading !== null}
+                        title="Copier le login"
+                      >
+                        {enpassLoading === site.enpass_refs.backend_protection + '_login' ? '...' : 'Login'}
+                      </button>
+                      <button
+                        className="enpass-btn"
+                        onClick={() => handleCopyPassword(site.enpass_refs.backend_protection!)}
+                        disabled={enpassLoading !== null}
+                        title="Copier le mot de passe"
+                      >
+                        {enpassLoading === site.enpass_refs.backend_protection ? '...' : 'MdP'}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -333,18 +420,18 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
           )}
 
           <section className="detail-section">
-            <h2>🗄️ Base de données</h2>
+            <h2>Base de donnees</h2>
             <div className="db-grid">
               <div className="db-info">
-                <span className="db-label">Hôte MySQL</span>
+                <span className="db-label">Hote MySQL</span>
                 <span className="db-value">{site.server.mysql_host}</span>
               </div>
               <div className="db-info">
-                <span className="db-label">Base de données</span>
+                <span className="db-label">Base de donnees</span>
                 <span className="db-value">{site.server.database}</span>
               </div>
               <div className="db-info">
-                <span className="db-label">Préfixe</span>
+                <span className="db-label">Prefixe</span>
                 <span className="db-value">{site.server.prefix}</span>
               </div>
             </div>
@@ -353,37 +440,46 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
               <Button
                 variant="primary"
                 onClick={() => setShowPhpMyAdminModal(true)}
-                icon="🔧"
+                icon="DB"
               >
-                Connexion guidée phpMyAdmin
+                Connexion guidee phpMyAdmin
               </Button>
               
-              {site.dashlane_refs.mysql_su && (
-                <Button
-                  variant="secondary"
-                  onClick={() => openDashlane(site.dashlane_refs.mysql_su)}
-                  icon="🔑"
-                >
-                  MySQL → Dashlane
-                </Button>
+              {site.enpass_refs.mysql_su && (
+                <div className="enpass-db-actions">
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleCopyLogin(site.enpass_refs.mysql_su)}
+                    disabled={enpassLoading !== null}
+                  >
+                    {enpassLoading === site.enpass_refs.mysql_su + '_login' ? 'Copie...' : 'Copier login MySQL'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleCopyPassword(site.enpass_refs.mysql_su)}
+                    disabled={enpassLoading !== null}
+                  >
+                    {enpassLoading === site.enpass_refs.mysql_su ? 'Copie...' : 'Copier MdP MySQL'}
+                  </Button>
+                </div>
               )}
             </div>
           </section>
 
           <section className="detail-section">
             <div className="section-header">
-              <h2>📝 Journal des interventions</h2>
+              <h2>Journal des interventions</h2>
               <Button variant="secondary" onClick={handleAddIntervention} icon="+">
                 Ajouter
               </Button>
             </div>
             {site.interventions.length === 0 ? (
-              <p className="empty-message">Aucune intervention enregistrée</p>
+              <p className="empty-message">Aucune intervention enregistree</p>
             ) : (
               <div className="interventions-timeline">
                 {site.interventions.map((intervention, index) => (
                   <div
-                    key={index}
+                    key={`intervention-${site.id}-${index}-${intervention.date}`}
                     className="intervention-item clickable"
                     onClick={() => handleEditIntervention(index)}
                     title="Cliquer pour modifier"
@@ -399,8 +495,8 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
                       <div className="intervention-type">{intervention.type_intervention}</div>
                       <div className="intervention-description">{intervention.description}</div>
                       <div className="intervention-meta">
-                        <span>⏱️ {intervention.duration}</span>
-                        <span>• {intervention.result}</span>
+                        <span>{intervention.duration}</span>
+                        <span>- {intervention.result}</span>
                       </div>
                     </div>
                   </div>
@@ -412,7 +508,7 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
 
         <aside className="detail-sidebar">
           <section className="detail-section">
-            <h2>ℹ️ Informations</h2>
+            <h2>Informations</h2>
             <div className="info-grid">
               <div className="info-item">
                 <span className="info-label">Joomla</span>
@@ -435,18 +531,18 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
 
           <section className="detail-section">
             <div className="section-header">
-              <h2>👤 Comptes Joomla</h2>
+              <h2>Comptes Joomla</h2>
               <Button variant="secondary" onClick={handleAddAccount} icon="+">
                 Ajouter
               </Button>
             </div>
             {(!site.joomla_accounts || site.joomla_accounts.length === 0) ? (
-              <p className="empty-message">Aucun compte enregistré</p>
+              <p className="empty-message">Aucun compte enregistre</p>
             ) : (
               <div className="accounts-list">
                 {site.joomla_accounts.map((account, index) => (
                   <div
-                    key={index}
+                    key={`account-${site.id}-${index}-${account.username}`}
                     className="account-item clickable"
                     onClick={() => handleEditAccount(index)}
                     title="Cliquer pour modifier"
@@ -455,14 +551,25 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
                       <div className="account-username">{account.username}</div>
                       <div className="account-role">{account.role}</div>
                     </div>
-                    {account.dashlane_ref && (
-                      <button
-                        className="dashlane-btn"
-                        onClick={(e) => openDashlane(account.dashlane_ref!, e)}
-                        title={`Ouvrir Dashlane (${account.dashlane_ref})`}
-                      >
-                        🔑
-                      </button>
+                    {account.enpass_ref && (
+                      <div className="enpass-actions">
+                        <button
+                          className="enpass-btn"
+                          onClick={(e) => handleCopyLogin(account.enpass_ref!, e)}
+                          disabled={enpassLoading !== null}
+                          title={`Copier le login (${account.enpass_ref})`}
+                        >
+                          {enpassLoading === account.enpass_ref + '_login' ? '...' : 'Login'}
+                        </button>
+                        <button
+                          className="enpass-btn"
+                          onClick={(e) => handleCopyPassword(account.enpass_ref!, e)}
+                          disabled={enpassLoading !== null}
+                          title={`Copier le mot de passe (${account.enpass_ref})`}
+                        >
+                          {enpassLoading === account.enpass_ref ? '...' : 'MdP'}
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -472,7 +579,7 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
 
           {site.analytics && (
             <section className="detail-section">
-              <h2>📊 Analytics & Tracking</h2>
+              <h2>Analytics & Tracking</h2>
               <div className="analytics-list">
                 {site.analytics.ga_id && (
                   <div className="analytics-item">
@@ -501,7 +608,7 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
                       rel="noopener noreferrer"
                       className="analytics-link"
                     >
-                      Voir le rapport →
+                      Voir le rapport
                     </a>
                   </div>
                 )}
@@ -511,7 +618,7 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
 
           <section className="detail-section">
             <div className="section-header">
-              <h2>🧩 Extensions</h2>
+              <h2>Extensions</h2>
               <Button variant="secondary" onClick={handleAddExtension} icon="+">
                 Ajouter
               </Button>
@@ -525,12 +632,10 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
                     <div className="extensions-group-label">Extensions critiques :</div>
                     <ul className="extensions-items">
                       {criticalExtensions.map((ext, index) => {
-                        const originalIndex = (site.extensions || []).findIndex(
-                          e => e.name === ext.name && e.version === ext.version
-                        );
+                        const originalIndex = findOriginalExtensionIndex(ext);
                         return (
                           <li
-                            key={index}
+                            key={`crit-ext-${site.id}-${ext.name}-${ext.version || 'unknown'}-${index}`}
                             className="extension-item critical clickable"
                             onClick={() => handleEditExtension(originalIndex)}
                             title="Cliquer pour modifier"
@@ -550,12 +655,10 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
                     )}
                     <ul className="extensions-items">
                       {otherExtensions.map((ext, index) => {
-                        const originalIndex = (site.extensions || []).findIndex(
-                          e => e.name === ext.name && e.version === ext.version
-                        );
+                        const originalIndex = findOriginalExtensionIndex(ext);
                         return (
                           <li
-                            key={index}
+                            key={`ext-${site.id}-${ext.name}-${ext.version || 'unknown'}-${index}`}
                             className="extension-item clickable"
                             onClick={() => handleEditExtension(originalIndex)}
                             title="Cliquer pour modifier"
@@ -574,17 +677,17 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
 
           <section className="detail-section">
             <div className="section-header">
-              <h2>✅ Checklist</h2>
+              <h2>Checklist</h2>
               <Button variant="secondary" onClick={handleAddChecklist} icon="+">
                 Ajouter
               </Button>
             </div>
             {site.checklist.length === 0 ? (
-              <p className="empty-message">Aucune tâche</p>
+              <p className="empty-message">Aucune tache</p>
             ) : (
               <div className="checklist">
                 {site.checklist.map((item, index) => (
-                  <div key={index} className="checklist-item">
+                  <div key={`checklist-${site.id}-${index}-${item.task.substring(0, 20)}`} className="checklist-item">
                     <input
                       type="checkbox"
                       checked={item.done}
@@ -606,10 +709,10 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
 
           {site.contacts.length > 0 && (
             <section className="detail-section">
-              <h2>👥 Contacts</h2>
+              <h2>Contacts</h2>
               <div className="contacts">
                 {site.contacts.map((contact, index) => (
-                  <div key={index} className="contact-item">
+                  <div key={`contact-${site.id}-${index}-${contact.name}`} className="contact-item">
                     <div className="contact-name">{contact.name}</div>
                     <div className="contact-role">{contact.role}</div>
                     {contact.email && (
@@ -628,7 +731,7 @@ export const SiteDetail: React.FC<SiteDetailProps> = ({ site, onBack, onUpdate, 
 
           {site.notes && (
             <section className="detail-section">
-              <h2>📋 Notes</h2>
+              <h2>Notes</h2>
               <p className="notes-text">{site.notes}</p>
             </section>
           )}

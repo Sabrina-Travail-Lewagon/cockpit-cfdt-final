@@ -1,6 +1,6 @@
 [package]
 name = "cockpit-cfdt"
-version = "1.0.0"
+version = "1.1.0"
 description = "Cockpit CFDT - Application sécurisée de gestion de sites"
 authors = ["Sabrina"]
 license = "MIT"
@@ -12,7 +12,7 @@ edition = "2021"
 panic = "abort"
 codegen-units = 1
 lto = true
-opt-level = "z"
+opt-level = "s"
 strip = true
 
 [build-dependencies]
@@ -20,7 +20,7 @@ tauri-build = { version = "1.5", features = [] }
 
 [dependencies]
 # Tauri - Framework desktop
-tauri = { version = "1.5", features = [ "fs-read-dir", "dialog-open", "fs-read-file", "fs-write-file", "fs-remove-file", "path-all", "fs-create-dir", "dialog-save", "fs-exists", "shell-open"] }
+tauri = { version = "1.5", features = [ "fs-read-dir", "dialog-open", "fs-read-file", "fs-write-file", "fs-remove-file", "fs-create-dir", "dialog-save", "fs-exists", "shell-open", "path-all"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
@@ -31,9 +31,20 @@ rand = "0.8"
 zeroize = { version = "1.7", features = ["derive"] }
 base64 = "0.21"
 
+# Lecture directe du vault Enpass (SQLCipher)
+rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
+pbkdf2 = { version = "0.12", features = ["hmac"] }
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+
+# Telechargement vault depuis pCloud WebDAV
+reqwest = { version = "0.11", features = ["blocking", "rustls-tls"] }
+
 # Système de fichiers
 dirs = "5.0"
 thiserror = "1.0"
+tempfile = "3.10"
 
 [features]
 # Custom features

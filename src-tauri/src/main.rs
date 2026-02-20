@@ -1,5 +1,5 @@
 // src-tauri/src/main.rs
-// Point d'entrée principal de Cockpit CFDT
+// Point d'entree principal de Cockpit CFDT
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -8,22 +8,38 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::State;
 
+/// Etat interne de l'application, protege par un seul Mutex
+/// pour eviter les inconsistances entre champs
+struct AppStateInner {
+    storage_manager: Option<StorageManager>,
+    app_data: Option<AppData>,
+    is_locked: bool,
+    config_manager: Option<ConfigManager>,
+}
+
 pub struct AppState {
-    storage_manager: Mutex<Option<StorageManager>>,
-    app_data: Mutex<Option<AppData>>,
-    is_locked: Mutex<bool>,
-    config_manager: Mutex<Option<ConfigManager>>,
+    inner: Mutex<AppStateInner>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
-            storage_manager: Mutex::new(None),
-            app_data: Mutex::new(None),
-            is_locked: Mutex::new(true),
-            config_manager: Mutex::new(None),
+            inner: Mutex::new(AppStateInner {
+                storage_manager: None,
+                app_data: None,
+                is_locked: true,
+                config_manager: None,
+            }),
         }
     }
+}
+
+/// Helper pour verrouiller le mutex sans paniquer sur un mutex empoisonne
+fn lock_state(state: &AppState) -> Result<std::sync::MutexGuard<'_, AppStateInner>, String> {
+    state
+        .inner
+        .lock()
+        .map_err(|_| "Erreur interne: etat de l'application corrompu".to_string())
 }
 
 #[tauri::command]
@@ -31,19 +47,23 @@ fn initialize_storage(app_dir: String, state: State<AppState>) -> Result<bool, S
     let path = PathBuf::from(&app_dir);
     let storage = StorageManager::new(&path).map_err(|e| format!("Erreur: {}", e))?;
     let exists = storage.exists();
-    *state.storage_manager.lock().unwrap() = Some(storage);
 
-    // Initialiser le ConfigManager avec le même répertoire
     let config = ConfigManager::new(&path).map_err(|e| format!("Erreur config: {}", e))?;
-    *state.config_manager.lock().unwrap() = Some(config);
+
+    let mut inner = lock_state(&state)?;
+    inner.storage_manager = Some(storage);
+    inner.config_manager = Some(config);
 
     Ok(exists)
 }
 
 #[tauri::command]
 fn create_initial_data(password: String, state: State<AppState>) -> Result<(), String> {
-    let storage_guard = state.storage_manager.lock().unwrap();
-    let storage = storage_guard.as_ref().ok_or("Storage non initialisé")?;
+    let inner = lock_state(&state)?;
+    let storage = inner
+        .storage_manager
+        .as_ref()
+        .ok_or("Storage non initialise")?;
     storage
         .initialize(&password)
         .map_err(|e| format!("Erreur: {}", e))?;
@@ -52,45 +72,55 @@ fn create_initial_data(password: String, state: State<AppState>) -> Result<(), S
 
 #[tauri::command]
 fn unlock(password: String, state: State<AppState>) -> Result<AppData, String> {
-    let storage_guard = state.storage_manager.lock().unwrap();
-    let storage = storage_guard.as_ref().ok_or("Storage non initialisé")?;
+    let mut inner = lock_state(&state)?;
+    let storage = inner
+        .storage_manager
+        .as_ref()
+        .ok_or("Storage non initialise")?;
     let data = storage
         .load(&password)
         .map_err(|e| format!("Erreur: {}", e))?;
-    *state.app_data.lock().unwrap() = Some(data.clone());
-    *state.is_locked.lock().unwrap() = false;
+    // Mise a jour atomique des deux champs
+    inner.app_data = Some(data.clone());
+    inner.is_locked = false;
     Ok(data)
 }
 
 #[tauri::command]
 fn lock(state: State<AppState>) -> Result<(), String> {
-    *state.app_data.lock().unwrap() = None;
-    *state.is_locked.lock().unwrap() = true;
+    let mut inner = lock_state(&state)?;
+    inner.app_data = None;
+    inner.is_locked = true;
     Ok(())
 }
 
 #[tauri::command]
 fn is_locked(state: State<AppState>) -> Result<bool, String> {
-    Ok(*state.is_locked.lock().unwrap())
+    let inner = lock_state(&state)?;
+    Ok(inner.is_locked)
 }
 
 #[tauri::command]
 fn save_data(password: String, data: AppData, state: State<AppState>) -> Result<(), String> {
-    let storage_guard = state.storage_manager.lock().unwrap();
-    let storage = storage_guard.as_ref().ok_or("Storage non initialisé")?;
+    let mut inner = lock_state(&state)?;
+    let storage = inner
+        .storage_manager
+        .as_ref()
+        .ok_or("Storage non initialise")?;
     storage
         .save(&data, &password, true)
         .map_err(|e| format!("Erreur: {}", e))?;
-    *state.app_data.lock().unwrap() = Some(data);
+    inner.app_data = Some(data);
     Ok(())
 }
 
 #[tauri::command]
 fn get_data(state: State<AppState>) -> Result<AppData, String> {
-    let data_guard = state.app_data.lock().unwrap();
-    data_guard
+    let inner = lock_state(&state)?;
+    inner
+        .app_data
         .as_ref()
-        .ok_or("Application verrouillée".to_string())
+        .ok_or("Application verrouillee".to_string())
         .cloned()
 }
 
@@ -100,10 +130,13 @@ fn change_password(
     new_password: String,
     state: State<AppState>,
 ) -> Result<(), String> {
-    let storage_guard = state.storage_manager.lock().unwrap();
-    let storage = storage_guard.as_ref().ok_or("Storage non initialisé")?;
+    let inner = lock_state(&state)?;
+    let storage = inner
+        .storage_manager
+        .as_ref()
+        .ok_or("Storage non initialise")?;
 
-    // Vérifier l'ancien mot de passe en chargeant les données
+    // Verifier l'ancien mot de passe en chargeant les donnees
     let data = storage
         .load(&old_password)
         .map_err(|_| "Ancien mot de passe incorrect")?;
@@ -118,10 +151,11 @@ fn change_password(
 
 #[tauri::command]
 fn get_data_location(state: State<AppState>) -> Result<String, String> {
-    let storage_guard = state.storage_manager.lock().unwrap();
-    let storage = storage_guard.as_ref().ok_or("Storage non initialisé")?;
-
-    // Récupérer le chemin actuel depuis le storage manager
+    let inner = lock_state(&state)?;
+    let storage = inner
+        .storage_manager
+        .as_ref()
+        .ok_or("Storage non initialise")?;
     let path = storage.get_data_dir();
     Ok(path.to_string_lossy().to_string())
 }
@@ -132,24 +166,33 @@ fn set_data_location(new_path: String, state: State<AppState>) -> Result<(), Str
 
     let new_dir = PathBuf::from(&new_path);
 
-    // Vérifier que le dossier existe
+    // Valider que le chemin est un repertoire existant et accessible
     if !new_dir.exists() {
         return Err(format!("Le dossier '{}' n'existe pas", new_path));
     }
-
-    // Récupérer l'ancien emplacement
-    let storage_guard = state.storage_manager.lock().unwrap();
-    let storage = storage_guard.as_ref().ok_or("Storage non initialisé")?;
-    let old_dir = storage.get_data_dir().to_path_buf();
-
-    // Vérifier que ce n'est pas le même dossier
-    if old_dir == new_dir {
-        return Err("Le nouvel emplacement est identique à l'ancien".to_string());
+    if !new_dir.is_dir() {
+        return Err(format!("'{}' n'est pas un dossier", new_path));
     }
 
-    drop(storage_guard); // Libérer le lock
+    // Canonicaliser le chemin pour resoudre les symlinks et ..
+    let new_dir = new_dir
+        .canonicalize()
+        .map_err(|e| format!("Chemin invalide: {}", e))?;
 
-    // Déplacer sites.encrypted s'il existe
+    let mut inner = lock_state(&state)?;
+    let storage = inner
+        .storage_manager
+        .as_ref()
+        .ok_or("Storage non initialise")?;
+    let old_dir = storage.get_data_dir().to_path_buf();
+
+    // Verifier que ce n'est pas le meme dossier
+    let old_canonical = old_dir.canonicalize().unwrap_or_else(|_| old_dir.clone());
+    if old_canonical == new_dir {
+        return Err("Le nouvel emplacement est identique a l'ancien".to_string());
+    }
+
+    // Deplacer sites.encrypted s'il existe
     let old_data_file = old_dir.join("sites.encrypted");
     let new_data_file = new_dir.join("sites.encrypted");
 
@@ -158,18 +201,16 @@ fn set_data_location(new_path: String, state: State<AppState>) -> Result<(), Str
             .map_err(|e| format!("Erreur lors de la copie de sites.encrypted: {}", e))?;
     }
 
-    // Déplacer le dossier backups s'il existe
+    // Deplacer le dossier backups s'il existe
     let old_backup_dir = old_dir.join("backups");
     let new_backup_dir = new_dir.join("backups");
 
     if old_backup_dir.exists() {
-        // Créer le dossier backups dans le nouveau dossier
         if !new_backup_dir.exists() {
             fs::create_dir_all(&new_backup_dir)
-                .map_err(|e| format!("Erreur lors de la création du dossier backups: {}", e))?;
+                .map_err(|e| format!("Erreur lors de la creation du dossier backups: {}", e))?;
         }
 
-        // Copier tous les fichiers de backup
         for entry in fs::read_dir(&old_backup_dir)
             .map_err(|e| format!("Erreur lors de la lecture des backups: {}", e))?
         {
@@ -191,32 +232,42 @@ fn set_data_location(new_path: String, state: State<AppState>) -> Result<(), Str
     }
 
     // Sauvegarder le nouvel emplacement dans la config
-    let config_guard = state.config_manager.lock().unwrap();
-    if let Some(config) = config_guard.as_ref() {
+    if let Some(config) = inner.config_manager.as_ref() {
         config
-            .set_custom_data_location(Some(new_path))
+            .set_custom_data_location(Some(new_dir.to_string_lossy().to_string()))
             .map_err(|e| format!("Erreur lors de la sauvegarde de la config: {}", e))?;
     }
+
+    // Re-initialiser le StorageManager avec le nouveau chemin
+    let new_storage = StorageManager::new(&new_dir)
+        .map_err(|e| format!("Erreur re-initialisation du storage: {}", e))?;
+    inner.storage_manager = Some(new_storage);
 
     Ok(())
 }
 
 #[tauri::command]
 fn list_backups(state: State<AppState>) -> Result<Vec<String>, String> {
-    let storage_guard = state.storage_manager.lock().unwrap();
-    let storage = storage_guard.as_ref().ok_or("Storage non initialisé")?;
+    let inner = lock_state(&state)?;
+    let storage = inner
+        .storage_manager
+        .as_ref()
+        .ok_or("Storage non initialise")?;
     storage.list_backups().map_err(|e| format!("Erreur: {}", e))
 }
 
 #[tauri::command]
 fn restore_backup(backup_name: String, state: State<AppState>) -> Result<(), String> {
-    let storage_guard = state.storage_manager.lock().unwrap();
-    let storage = storage_guard.as_ref().ok_or("Storage non initialisé")?;
+    let mut inner = lock_state(&state)?;
+    let storage = inner
+        .storage_manager
+        .as_ref()
+        .ok_or("Storage non initialise")?;
     storage
         .restore_backup(&backup_name)
         .map_err(|e| format!("Erreur: {}", e))?;
-    *state.app_data.lock().unwrap() = None;
-    *state.is_locked.lock().unwrap() = true;
+    inner.app_data = None;
+    inner.is_locked = true;
     Ok(())
 }
 
@@ -229,6 +280,295 @@ fn get_custom_data_location(config_dir: String) -> Result<Option<String>, String
     config
         .get_custom_data_location()
         .map_err(|e| format!("Erreur lors de la lecture de la config: {}", e))
+}
+
+// =========================================================================
+// Commandes Enpass (lecture directe du vault SQLCipher, local ou WebDAV)
+// =========================================================================
+
+use cockpit_cfdt::enpass;
+
+/// Resultat d'une commande Enpass
+#[derive(serde::Serialize)]
+struct EnpassCliResult {
+    success: bool,
+    message: String,
+    data: Option<String>,
+}
+
+/// Construit un VaultConfig a partir des parametres de la commande
+fn build_vault_config<'a>(
+    vault_path: &'a str,
+    vault_mode: &'a str,
+    webdav_url: &'a str,
+    pcloud_username: &'a str,
+    pcloud_password: &'a str,
+) -> enpass::VaultConfig<'a> {
+    enpass::VaultConfig {
+        vault_path,
+        mode: vault_mode,
+        webdav_url,
+        pcloud_username,
+        pcloud_password,
+    }
+}
+
+/// Recupere le mot de passe d'une entree Enpass
+#[tauri::command]
+fn enpass_get_password(
+    vault_path: String,
+    entry_name: String,
+    master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
+) -> Result<EnpassCliResult, String> {
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::get_password_with_config(&config, &entry_name, &master_password) {
+        Ok(password) => Ok(EnpassCliResult {
+            success: true,
+            message: "Mot de passe recupere".to_string(),
+            data: Some(password),
+        }),
+        Err(e) => Ok(EnpassCliResult {
+            success: false,
+            message: format!("Erreur: {}", e),
+            data: None,
+        }),
+    }
+}
+
+/// Affiche les details d'une entree Enpass (login + password + url)
+#[tauri::command]
+fn enpass_show_entry(
+    vault_path: String,
+    entry_name: String,
+    master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
+) -> Result<EnpassCliResult, String> {
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::show_entry_with_config(&config, &entry_name, &master_password) {
+        Ok(json_data) => Ok(EnpassCliResult {
+            success: true,
+            message: "Entree trouvee".to_string(),
+            data: Some(json_data),
+        }),
+        Err(e) => Ok(EnpassCliResult {
+            success: false,
+            message: format!("Erreur: {}", e),
+            data: None,
+        }),
+    }
+}
+
+/// Recupere le mot de passe d'une entree (alias pour copy - le frontend
+/// gere le presse-papiers via navigator.clipboard.writeText)
+#[tauri::command]
+fn enpass_copy_password(
+    vault_path: String,
+    entry_name: String,
+    master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
+) -> Result<EnpassCliResult, String> {
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::get_password_with_config(&config, &entry_name, &master_password) {
+        Ok(password) => Ok(EnpassCliResult {
+            success: true,
+            message: "Mot de passe recupere".to_string(),
+            data: Some(password),
+        }),
+        Err(e) => Ok(EnpassCliResult {
+            success: false,
+            message: format!("Erreur: {}", e),
+            data: None,
+        }),
+    }
+}
+
+/// Cree une nouvelle entree dans le vault Enpass
+#[tauri::command]
+fn enpass_create_entry(
+    vault_path: String,
+    title: String,
+    login: String,
+    password: String,
+    url: String,
+    master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
+) -> Result<EnpassCliResult, String> {
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::create_entry_with_config(
+        &config,
+        &title,
+        &login,
+        &password,
+        &url,
+        &master_password,
+    ) {
+        Ok(uuid) => Ok(EnpassCliResult {
+            success: true,
+            message: format!("Entree '{}' creee dans Enpass ({})", title, uuid),
+            data: None,
+        }),
+        Err(e) => Ok(EnpassCliResult {
+            success: false,
+            message: format!("Erreur creation: {}", e),
+            data: None,
+        }),
+    }
+}
+
+/// Liste les entrees Enpass correspondant a un filtre
+#[tauri::command]
+fn enpass_list_entries(
+    vault_path: String,
+    filter: String,
+    master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
+) -> Result<EnpassCliResult, String> {
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::list_entries_with_config(&config, &filter, &master_password) {
+        Ok(entries) => {
+            let json = serde_json::to_string(&entries)
+                .map_err(|e| format!("Erreur serialisation: {}", e))?;
+            Ok(EnpassCliResult {
+                success: true,
+                message: "Liste recuperee".to_string(),
+                data: Some(json),
+            })
+        }
+        Err(e) => Ok(EnpassCliResult {
+            success: false,
+            message: format!("Erreur: {}", e),
+            data: None,
+        }),
+    }
+}
+
+/// Detecte automatiquement les vaults Enpass sur la machine
+#[tauri::command]
+fn enpass_detect_vaults() -> Result<Vec<String>, String> {
+    Ok(enpass::detect_vaults())
+}
+
+/// Verifie que le vault Enpass est accessible
+#[tauri::command]
+fn enpass_check_setup(
+    vault_path: String,
+    master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
+) -> Result<EnpassCliResult, String> {
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::check_setup_with_config(&config, &master_password) {
+        Ok(()) => Ok(EnpassCliResult {
+            success: true,
+            message: "Vault Enpass accessible et configure correctement".to_string(),
+            data: None,
+        }),
+        Err(e) => Ok(EnpassCliResult {
+            success: false,
+            message: format!("Erreur configuration: {}", e),
+            data: None,
+        }),
+    }
+}
+
+/// Diagnostic de recherche Enpass : aide a comprendre pourquoi une entree n'est pas trouvee
+#[tauri::command]
+fn enpass_debug_search(
+    vault_path: String,
+    search_term: String,
+    master_password: String,
+    vault_mode: Option<String>,
+    webdav_url: Option<String>,
+    pcloud_username: Option<String>,
+    pcloud_password: Option<String>,
+) -> Result<EnpassCliResult, String> {
+    let mode = vault_mode.unwrap_or_default();
+    let wurl = webdav_url.unwrap_or_default();
+    let puser = pcloud_username.unwrap_or_default();
+    let ppass = pcloud_password.unwrap_or_default();
+    let config = build_vault_config(&vault_path, &mode, &wurl, &puser, &ppass);
+
+    match enpass::debug_search_with_config(&config, &search_term, &master_password) {
+        Ok(info) => Ok(EnpassCliResult {
+            success: true,
+            message: "Diagnostic termine".to_string(),
+            data: Some(info),
+        }),
+        Err(e) => Ok(EnpassCliResult {
+            success: false,
+            message: format!("Erreur diagnostic: {}", e),
+            data: None,
+        }),
+    }
+}
+
+/// Synchronise le vault Enpass depuis pCloud WebDAV (force le re-telechargement)
+#[tauri::command]
+fn enpass_sync_webdav(
+    webdav_url: String,
+    pcloud_username: String,
+    pcloud_password: String,
+) -> Result<EnpassCliResult, String> {
+    match enpass::sync_webdav_vault(&webdav_url, &pcloud_username, &pcloud_password) {
+        Ok(msg) => Ok(EnpassCliResult {
+            success: true,
+            message: msg,
+            data: None,
+        }),
+        Err(e) => Ok(EnpassCliResult {
+            success: false,
+            message: format!("Erreur synchronisation: {}", e),
+            data: None,
+        }),
+    }
 }
 
 fn main() {
@@ -248,6 +588,16 @@ fn main() {
             get_data_location,
             set_data_location,
             get_custom_data_location,
+            // Commandes Enpass (lecture directe du vault, local ou WebDAV)
+            enpass_get_password,
+            enpass_show_entry,
+            enpass_copy_password,
+            enpass_create_entry,
+            enpass_list_entries,
+            enpass_check_setup,
+            enpass_detect_vaults,
+            enpass_sync_webdav,
+            enpass_debug_search,
         ])
         .run(tauri::generate_context!())
         .expect("Erreur lors du lancement de l'application");

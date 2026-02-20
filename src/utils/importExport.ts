@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import { AppData, Site, Extension, ChecklistItem, Intervention, JoomlaAccount, Contact } from '../types';
 
 /**
- * Export les données de l'application vers un fichier Excel
+ * Export les donnees de l'application vers un fichier Excel
  */
 export function exportToExcel(data: AppData, filename: string = 'cockpit-cfdt-export.xlsx'): void {
   const workbook = XLSX.utils.book_new();
@@ -27,17 +27,17 @@ export function exportToExcel(data: AppData, filename: string = 'cockpit-cfdt-ex
     gtm_id: site.analytics?.gtm_id || '',
     cookie_solution: site.analytics?.cookie_solution || '',
     looker_report_url: site.analytics?.looker_report_url || '',
-    dashlane_backend_protection: site.dashlane_refs.backend_protection || '',
-    dashlane_joomla_admin: site.dashlane_refs.joomla_admin,
-    dashlane_mysql_su: site.dashlane_refs.mysql_su,
-    dashlane_mysql_std: site.dashlane_refs.mysql_std || '',
+    enpass_backend_protection: site.enpass_refs.backend_protection || '',
+    enpass_joomla_admin: site.enpass_refs.joomla_admin,
+    enpass_mysql_su: site.enpass_refs.mysql_su,
+    enpass_mysql_std: site.enpass_refs.mysql_std || '',
     notes: site.notes
   }));
   const sitesSheet = XLSX.utils.json_to_sheet(sitesData);
   XLSX.utils.book_append_sheet(workbook, sitesSheet, 'Sites');
 
-  // Feuille 2: Comptes Joomla
-  const accountsData: any[] = [];
+  // Feuille 2: Comptes Joomla (avec guard null)
+  const accountsData: Record<string, string>[] = [];
   data.sites.forEach(site => {
     (site.joomla_accounts || []).forEach(account => {
       accountsData.push({
@@ -45,15 +45,15 @@ export function exportToExcel(data: AppData, filename: string = 'cockpit-cfdt-ex
         site_name: site.name,
         username: account.username,
         role: account.role,
-        dashlane_ref: account.dashlane_ref || ''
+        enpass_ref: account.enpass_ref || ''
       });
     });
   });
   const accountsSheet = XLSX.utils.json_to_sheet(accountsData);
   XLSX.utils.book_append_sheet(workbook, accountsSheet, 'Comptes Joomla');
 
-  // Feuille 3: Extensions
-  const extensionsData: any[] = [];
+  // Feuille 3: Extensions (avec guard null)
+  const extensionsData: Record<string, string>[] = [];
   data.sites.forEach(site => {
     (site.extensions || []).forEach(ext => {
       extensionsData.push({
@@ -68,10 +68,10 @@ export function exportToExcel(data: AppData, filename: string = 'cockpit-cfdt-ex
   const extensionsSheet = XLSX.utils.json_to_sheet(extensionsData);
   XLSX.utils.book_append_sheet(workbook, extensionsSheet, 'Extensions');
 
-  // Feuille 4: Checklist
-  const checklistData: any[] = [];
+  // Feuille 4: Checklist (avec guard null)
+  const checklistData: Record<string, string>[] = [];
   data.sites.forEach(site => {
-    site.checklist.forEach(item => {
+    (site.checklist || []).forEach(item => {
       checklistData.push({
         site_id: site.id,
         site_name: site.name,
@@ -84,10 +84,10 @@ export function exportToExcel(data: AppData, filename: string = 'cockpit-cfdt-ex
   const checklistSheet = XLSX.utils.json_to_sheet(checklistData);
   XLSX.utils.book_append_sheet(workbook, checklistSheet, 'Checklist');
 
-  // Feuille 5: Interventions
-  const interventionsData: any[] = [];
+  // Feuille 5: Interventions (avec guard null)
+  const interventionsData: Record<string, string>[] = [];
   data.sites.forEach(site => {
-    site.interventions.forEach(intervention => {
+    (site.interventions || []).forEach(intervention => {
       interventionsData.push({
         site_id: site.id,
         site_name: site.name,
@@ -102,10 +102,10 @@ export function exportToExcel(data: AppData, filename: string = 'cockpit-cfdt-ex
   const interventionsSheet = XLSX.utils.json_to_sheet(interventionsData);
   XLSX.utils.book_append_sheet(workbook, interventionsSheet, 'Interventions');
 
-  // Feuille 6: Contacts
-  const contactsData: any[] = [];
+  // Feuille 6: Contacts (avec guard null)
+  const contactsData: Record<string, string>[] = [];
   data.sites.forEach(site => {
-    site.contacts.forEach(contact => {
+    (site.contacts || []).forEach(contact => {
       contactsData.push({
         site_id: site.id,
         site_name: site.name,
@@ -119,12 +119,12 @@ export function exportToExcel(data: AppData, filename: string = 'cockpit-cfdt-ex
   const contactsSheet = XLSX.utils.json_to_sheet(contactsData);
   XLSX.utils.book_append_sheet(workbook, contactsSheet, 'Contacts');
 
-  // Télécharger le fichier
+  // Telecharger le fichier
   XLSX.writeFile(workbook, filename);
 }
 
 /**
- * Génère un fichier modèle Excel vide avec les bonnes colonnes
+ * Genere un fichier modele Excel vide avec les bonnes colonnes
  */
 export function downloadTemplate(): void {
   const workbook = XLSX.utils.book_new();
@@ -149,10 +149,10 @@ export function downloadTemplate(): void {
     gtm_id: 'GTM-XXXXXXXX',
     cookie_solution: 'Tarteaucitron',
     looker_report_url: 'https://lookerstudio.google.com/s/xxx',
-    dashlane_backend_protection: '[CFDT-Exemple] Backend Protection',
-    dashlane_joomla_admin: '[Exemple] Joomla Admin',
-    dashlane_mysql_su: '[Exemple] MySQL Root',
-    dashlane_mysql_std: '',
+    enpass_backend_protection: '[CFDT-Exemple] Backend Protection',
+    enpass_joomla_admin: '[Exemple] Joomla Admin',
+    enpass_mysql_su: '[Exemple] MySQL Root',
+    enpass_mysql_std: '',
     notes: 'Notes sur le site'
   }];
   const sitesSheet = XLSX.utils.json_to_sheet(sitesExample);
@@ -164,13 +164,13 @@ export function downloadTemplate(): void {
     site_name: 'CFDT Exemple',
     username: 'admin',
     role: 'Super Administrateur',
-    dashlane_ref: '[Exemple] Joomla Admin'
+    enpass_ref: '[Exemple] Joomla Admin'
   }, {
     site_id: 'cfdt-exemple',
     site_name: 'CFDT Exemple',
     username: 'editeur',
-    role: 'Éditeur',
-    dashlane_ref: '[Exemple] Éditeur 1'
+    role: 'Editeur',
+    enpass_ref: '[Exemple] Editeur 1'
   }];
   const accountsSheet = XLSX.utils.json_to_sheet(accountsExample);
   XLSX.utils.book_append_sheet(workbook, accountsSheet, 'Comptes Joomla');
@@ -196,7 +196,7 @@ export function downloadTemplate(): void {
   const checklistExample = [{
     site_id: 'cfdt-exemple',
     site_name: 'CFDT Exemple',
-    task: 'Mise à jour Joomla',
+    task: 'Mise a jour Joomla',
     done: 'Oui',
     date: '2025-01-15'
   }];
@@ -208,10 +208,10 @@ export function downloadTemplate(): void {
     site_id: 'cfdt-exemple',
     site_name: 'CFDT Exemple',
     date: '2025-01-20',
-    type: 'Mise à jour Joomla',
-    description: 'Mise à jour de Joomla 5.3 vers 5.4',
+    type: 'Mise a jour Joomla',
+    description: 'Mise a jour de Joomla 5.3 vers 5.4',
     duration: '30 min',
-    result: 'Succès'
+    result: 'Succes'
   }];
   const interventionsSheet = XLSX.utils.json_to_sheet(interventionsExample);
   XLSX.utils.book_append_sheet(workbook, interventionsSheet, 'Interventions');
@@ -231,8 +231,78 @@ export function downloadTemplate(): void {
   XLSX.writeFile(workbook, 'cockpit-cfdt-template.xlsx');
 }
 
+/** Interface pour les lignes brutes de l'Excel */
+interface SiteRow {
+  id?: string;
+  name?: string;
+  enabled?: string | boolean;
+  frontend_url?: string;
+  backend_url?: string;
+  phpmyadmin_url?: string;
+  admintools_login?: string;
+  mysql_host?: string;
+  database?: string;
+  prefix?: string;
+  ovh_vps?: string;
+  joomla_version?: string;
+  php_version?: string;
+  template?: string;
+  ga_id?: string;
+  gtm_id?: string;
+  cookie_solution?: string;
+  looker_report_url?: string;
+  enpass_backend_protection?: string;
+  dashlane_backend_protection?: string;
+  enpass_joomla_admin?: string;
+  dashlane_joomla_admin?: string;
+  enpass_mysql_su?: string;
+  dashlane_mysql_su?: string;
+  enpass_mysql_std?: string;
+  dashlane_mysql_std?: string;
+  notes?: string;
+}
+
+interface AccountRow {
+  site_id?: string;
+  username?: string;
+  role?: string;
+  enpass_ref?: string;
+  dashlane_ref?: string;
+}
+
+interface ExtensionRow {
+  site_id?: string;
+  name?: string;
+  version?: string;
+  critical?: string | boolean;
+}
+
+interface ChecklistRow {
+  site_id?: string;
+  task?: string;
+  done?: string | boolean;
+  date?: string;
+}
+
+interface InterventionRow {
+  site_id?: string;
+  date?: string;
+  type?: string;
+  description?: string;
+  duration?: string;
+  result?: string;
+}
+
+interface ContactRow {
+  site_id?: string;
+  name?: string;
+  role?: string;
+  email?: string;
+  phone?: string;
+}
+
 /**
- * Import des données depuis un fichier Excel
+ * Import des donnees depuis un fichier Excel
  */
 export async function importFromExcel(file: File): Promise<Site[]> {
   return new Promise((resolve, reject) => {
@@ -240,74 +310,82 @@ export async function importFromExcel(file: File): Promise<Site[]> {
 
     reader.onload = (e) => {
       try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        // Validation du resultat de lecture
+        if (!e.target?.result || !(e.target.result instanceof ArrayBuffer)) {
+          throw new Error('Erreur de lecture du contenu du fichier');
+        }
+
+        const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
 
         // Lire la feuille Sites
         const sitesSheet = workbook.Sheets['Sites'];
         if (!sitesSheet) {
-          throw new Error('Feuille "Sites" non trouvée dans le fichier');
+          throw new Error('Feuille "Sites" non trouvee dans le fichier');
         }
-        const sitesRaw = XLSX.utils.sheet_to_json<any>(sitesSheet);
+        const sitesRaw = XLSX.utils.sheet_to_json<SiteRow>(sitesSheet);
 
         // Lire les autres feuilles
         const accountsSheet = workbook.Sheets['Comptes Joomla'];
-        const accountsRaw = accountsSheet ? XLSX.utils.sheet_to_json<any>(accountsSheet) : [];
+        const accountsRaw: AccountRow[] = accountsSheet ? XLSX.utils.sheet_to_json<AccountRow>(accountsSheet) : [];
 
         const extensionsSheet = workbook.Sheets['Extensions'];
-        const extensionsRaw = extensionsSheet ? XLSX.utils.sheet_to_json<any>(extensionsSheet) : [];
+        const extensionsRaw: ExtensionRow[] = extensionsSheet ? XLSX.utils.sheet_to_json<ExtensionRow>(extensionsSheet) : [];
 
         const checklistSheet = workbook.Sheets['Checklist'];
-        const checklistRaw = checklistSheet ? XLSX.utils.sheet_to_json<any>(checklistSheet) : [];
+        const checklistRaw: ChecklistRow[] = checklistSheet ? XLSX.utils.sheet_to_json<ChecklistRow>(checklistSheet) : [];
 
         const interventionsSheet = workbook.Sheets['Interventions'];
-        const interventionsRaw = interventionsSheet ? XLSX.utils.sheet_to_json<any>(interventionsSheet) : [];
+        const interventionsRaw: InterventionRow[] = interventionsSheet ? XLSX.utils.sheet_to_json<InterventionRow>(interventionsSheet) : [];
 
         const contactsSheet = workbook.Sheets['Contacts'];
-        const contactsRaw = contactsSheet ? XLSX.utils.sheet_to_json<any>(contactsSheet) : [];
+        const contactsRaw: ContactRow[] = contactsSheet ? XLSX.utils.sheet_to_json<ContactRow>(contactsSheet) : [];
 
         // Construire les sites
-        const sites: Site[] = sitesRaw.map((row: any) => {
-          const siteId = row.id || `site-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const sites: Site[] = sitesRaw.map((row: SiteRow) => {
+          // Generer un ID unique avec crypto.randomUUID si disponible
+          const siteId = row.id || (typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `site-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`);
 
-          // Récupérer les données liées à ce site
+          // Recuperer les donnees liees a ce site
           const siteAccounts: JoomlaAccount[] = accountsRaw
-            .filter((a: any) => a.site_id === siteId)
-            .map((a: any) => ({
+            .filter((a: AccountRow) => a.site_id === siteId)
+            .map((a: AccountRow) => ({
               username: a.username || '',
-              role: a.role || 'Éditeur',
-              dashlane_ref: a.dashlane_ref || null
+              role: a.role || 'Editeur',
+              enpass_ref: a.enpass_ref || a.dashlane_ref || null
             }));
 
           const siteExtensions: Extension[] = extensionsRaw
-            .filter((e: any) => e.site_id === siteId)
-            .map((e: any) => ({
-              name: e.name || '',
-              version: e.version || null,
-              critical: e.critical === 'Oui' || e.critical === true
+            .filter((ext: ExtensionRow) => ext.site_id === siteId)
+            .map((ext: ExtensionRow) => ({
+              name: ext.name || '',
+              version: ext.version || null,
+              critical: ext.critical === 'Oui' || ext.critical === true
             }));
 
           const siteChecklist: ChecklistItem[] = checklistRaw
-            .filter((c: any) => c.site_id === siteId)
-            .map((c: any) => ({
+            .filter((c: ChecklistRow) => c.site_id === siteId)
+            .map((c: ChecklistRow) => ({
               task: c.task || '',
               done: c.done === 'Oui' || c.done === true,
               date: c.date || null
             }));
 
           const siteInterventions: Intervention[] = interventionsRaw
-            .filter((i: any) => i.site_id === siteId)
-            .map((i: any) => ({
+            .filter((i: InterventionRow) => i.site_id === siteId)
+            .map((i: InterventionRow) => ({
               date: i.date || new Date().toISOString().split('T')[0],
               type_intervention: i.type || 'Autre',
               description: i.description || '',
-              duration: i.duration || 'Non spécifié',
-              result: i.result || 'Non spécifié'
+              duration: i.duration || 'Non specifie',
+              result: i.result || 'Non specifie'
             }));
 
           const siteContacts: Contact[] = contactsRaw
-            .filter((c: any) => c.site_id === siteId)
-            .map((c: any) => ({
+            .filter((c: ContactRow) => c.site_id === siteId)
+            .map((c: ContactRow) => ({
               name: c.name || '',
               role: c.role || '',
               email: c.email || null,
@@ -323,11 +401,11 @@ export async function importFromExcel(file: File): Promise<Site[]> {
               backend: row.backend_url || '',
               phpmyadmin: row.phpmyadmin_url || ''
             },
-            dashlane_refs: {
-              backend_protection: row.dashlane_backend_protection || null,
-              joomla_admin: row.dashlane_joomla_admin || '',
-              mysql_su: row.dashlane_mysql_su || '',
-              mysql_std: row.dashlane_mysql_std || null,
+            enpass_refs: {
+              backend_protection: row.enpass_backend_protection || row.dashlane_backend_protection || null,
+              joomla_admin: row.enpass_joomla_admin || row.dashlane_joomla_admin || '',
+              mysql_su: row.enpass_mysql_su || row.dashlane_mysql_su || '',
+              mysql_std: row.enpass_mysql_std || row.dashlane_mysql_std || null,
               editors: []
             },
             admintools_login: row.admintools_login || null,

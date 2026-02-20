@@ -12,6 +12,7 @@ interface MainLayoutProps {
   onDataChange: (data: AppData) => void;
   onLock: () => void;
   onPasswordChanged: (newPassword: string) => void;
+  password: string;
 }
 
 export type ViewMode = 'all' | 'up-to-date' | 'action-required' | 'in-progress';
@@ -21,12 +22,24 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   onDataChange,
   onLock,
   onPasswordChanged,
+  password,
 }) => {
   const [currentView, setCurrentView] = useState<ViewMode>('all');
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+
+  // Mot de passe Enpass separe (session uniquement, non persiste)
+  const [enpassSeparatePassword, setEnpassSeparatePassword] = useState('');
+
+  // Mot de passe pCloud (session uniquement, non persiste)
+  const [pcloudPassword, setPcloudPassword] = useState('');
+
+  // Mot de passe effectif pour Enpass : utilise le mdp separe si configure, sinon le mdp Cockpit
+  const effectiveEnpassPassword = appData.settings.enpass_use_separate_password && enpassSeparatePassword
+    ? enpassSeparatePassword
+    : password;
 
   // Handler pour changer de vue et fermer automatiquement le détail
   const handleViewChange = (view: ViewMode) => {
@@ -145,11 +158,20 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             onBack={() => setShowSettings(false)}
             onPasswordChanged={onPasswordChanged}
             appData={appData}
+            onDataChange={onDataChange}
             onImportSites={handleImportSites}
+            password={password}
+            enpassSeparatePassword={enpassSeparatePassword}
+            onEnpassSeparatePasswordChange={setEnpassSeparatePassword}
+            pcloudPassword={pcloudPassword}
+            onPcloudPasswordChange={setPcloudPassword}
           />
         ) : selectedSite ? (
           <SiteDetail
             site={selectedSite}
+            settings={appData.settings}
+            enpassMasterPassword={effectiveEnpassPassword}
+            pcloudPassword={pcloudPassword}
             onBack={handleBackToList}
             onUpdate={(updatedSite) => {
               const updatedData = {
@@ -178,6 +200,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         <AddSiteModal
           onAdd={handleAddSite}
           onClose={() => setShowAddModal(false)}
+          settings={appData.settings}
+          enpassMasterPassword={effectiveEnpassPassword}
+          pcloudPassword={pcloudPassword}
         />
       )}
     </div>
