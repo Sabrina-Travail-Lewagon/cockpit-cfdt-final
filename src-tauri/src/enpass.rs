@@ -72,8 +72,12 @@ fn download_webdav_file(
 /// - Le header JSON (metadonnees du vault, equivalent de vault.json)
 /// - Les donnees SQLCipher brutes (la base de donnees chiffree)
 ///
-/// Le format .enpassdbsync est un conteneur : JSON puis donnees binaires
-/// Le JSON se termine par le dernier `}` et les donnees SQLCipher suivent immediatement
+/// Le format .enpassdbsync est un conteneur :
+///   [JSON header][padding null bytes][donnees SQLCipher]
+///
+/// Les donnees SQLCipher commencent a un offset aligne (typiquement 1024 ou 4096)
+/// depuis le debut du fichier. Le padding entre le JSON et les donnees est rempli
+/// de null bytes (0x00).
 fn split_enpassdbsync(data: &[u8]) -> Result<(String, Vec<u8>), String> {
     if data.is_empty() {
         return Err("Fichier vault.enpassdbsync vide".to_string());
@@ -130,26 +134,14 @@ fn split_enpassdbsync(data: &[u8]) -> Result<(String, Vec<u8>), String> {
     }
 
     let json_part = String::from_utf8_lossy(&data[..json_end]).to_string();
-    let db_part = data[json_end..].to_vec();
 
-    // Le fichier .enpassdbsync a un bloc de padding (null bytes) entre le JSON header
-    // et les donnees SQLCipher. Le fichier SQLCipher commence typiquement a un offset
-    // aligne (1024, 2048, 4096, etc.) depuis le debut du fichier.
+    // Le format .enpassdbsync aligne les donnees SQLCipher sur une frontiere de page.
+    // On essaie les alignements courants : 1024, 4096, 8192 depuis le debut du fichier.
+    // L'offset SQLCipher = le premier multiple de page_size >= json_end.
     //
-    // On retourne les donnees brutes apres le JSON (y compris le padding).
-    // La fonction appelante devra gerer le padding si necessaire.
-    //
-    // On skip juste les whitespace (CR, LF, espace, tab) juste apres le JSON
-    let mut skip = 0;
-    for &byte in db_part.iter() {
-        if byte == b' ' || byte == b'\r' || byte == b'\n' || byte == b'\t' {
-            skip += 1;
-        } else {
-            break;
-        }
-    }
-
-    let db_data = db_part[skip..].to_vec();
+    // On retourne le json_end pour que la fonction appelante puisse essayer
+    // plusieurs strategies d'extraction des donnees SQLCipher.
+    let db_data = data[json_end..].to_vec();
 
     Ok((json_part, db_data))
 }
@@ -220,36 +212,117 @@ fn download_vault_from_webdav(
     fs::write(&json_path, &json_header)
         .map_err(|e| format!("Erreur ecriture vault_info.json: {}", e))?;
 
-    // Le bloc de donnees apres le JSON commence par du padding (null bytes)
-    // suivi des donnees SQLCipher. On doit trouver ou commence le vrai SQLCipher.
+    // Le format .enpassdbsync aligne les donnees SQLCipher sur une frontiere de page.
+    // L'offset SQLCipher depuis le debut du fichier = premier multiple de page_size >= json_end.
     //
-    // Un fichier SQLCipher chiffre commence par 16 octets de sel (aleatoires, non nuls).
-    // On cherche le premier octet non-nul dans les donnees pour trouver le debut.
+    // json_header.len() = json_end (position apres le JSON dans le fichier complet)
+    // db_data = raw_bytes[json_end..] (tout ce qui suit le JSON)
     //
-    // IMPORTANT: le sel pourrait contenir des 0x00, mais statistiquement le premier octet
-    // du sel est non-nul. On cherche donc le premier octet non-nul apres le padding.
-    let sqlcipher_start = db_data.iter().position(|&b| b != 0x00).unwrap_or(0);
+    // On essaie plusieurs strategies pour trouver le debut des donnees SQLCipher :
+    // 1. Alignement sur 1024 octets depuis le debut du fichier
+    // 2. Alignement sur 4096 octets depuis le debut du fichier
+    // 3. Alignement sur 8192 octets depuis le debut du fichier
+    // 4. Premier octet non-nul (ancienne heuristique, fallback)
 
-    // Stocker aussi les infos de debug
-    let padding_size = sqlcipher_start;
-    let actual_db_data = &db_data[sqlcipher_start..];
+    let json_end = json_header.len();
+    let total_size = raw_bytes.len();
 
-    // Ecrire les donnees SQLCipher (sans le padding de zeros)
+    // Calculer les offsets alignes possibles depuis le debut du fichier
+    let mut candidate_offsets: Vec<(String, usize)> = Vec::new();
+
+    for &page_size in &[1024usize, 4096, 8192, 16384] {
+        // L'offset aligne = le premier multiple de page_size >= json_end
+        let aligned_offset = if json_end % page_size == 0 {
+            json_end
+        } else {
+            ((json_end / page_size) + 1) * page_size
+        };
+
+        if aligned_offset < total_size {
+            let offset_in_db_data = aligned_offset - json_end;
+            candidate_offsets.push((format!("align_{}", page_size), offset_in_db_data));
+        }
+    }
+
+    // Ajouter le fallback : premier octet non-nul
+    let first_non_null = db_data.iter().position(|&b| b != 0x00).unwrap_or(0);
+    candidate_offsets.push(("first_non_null".to_string(), first_non_null));
+
+    // Ajouter le fallback : pas de padding du tout (donnees juste apres le JSON)
+    candidate_offsets.push(("no_padding".to_string(), 0));
+
+    // Dedupliquer les offsets
+    candidate_offsets.sort_by_key(|item| item.1);
+    candidate_offsets.dedup_by_key(|item| item.1);
+
+    // Ecrire les infos de debug
+    let debug_candidates: Vec<String> = candidate_offsets
+        .iter()
+        .map(|(name, offset)| {
+            let abs_offset = json_end + *offset;
+            let remaining = total_size.saturating_sub(abs_offset);
+            let first_bytes = if *offset < db_data.len() {
+                let end = std::cmp::min(*offset + 16, db_data.len());
+                hex::encode(&db_data[*offset..end])
+            } else {
+                "OUT_OF_BOUNDS".to_string()
+            };
+            format!(
+                "{}:rel={},abs={},remaining={},first16={}",
+                name, offset, abs_offset, remaining, first_bytes
+            )
+        })
+        .collect();
+
+    let debug_info = format!(
+        "json_size={}, db_data_size={}, total={}, candidates=[{}]",
+        json_end,
+        db_data.len(),
+        total_size,
+        debug_candidates.join(" | ")
+    );
+    let _ = fs::write(temp_dir.join("split_debug.txt"), &debug_info);
+
+    // Trouver le bon offset : on essaie chaque candidat et on prend le premier
+    // dont la taille resultante est un multiple de 1024 (condition necessaire pour SQLCipher)
+    // et dont la taille est > 0
+    let mut best_offset = first_non_null; // fallback par defaut
+    let mut best_name = "first_non_null";
+
+    for (name, offset) in &candidate_offsets {
+        if *offset >= db_data.len() {
+            continue;
+        }
+        let remaining = db_data.len() - *offset;
+        // SQLCipher: la taille du fichier doit etre un multiple de la page_size (1024, 4096, etc.)
+        if remaining > 0 && (remaining % 1024 == 0 || remaining % 4096 == 0) {
+            best_offset = *offset;
+            best_name = name;
+            break; // prendre le premier candidat valide
+        }
+    }
+
+    let actual_db_data = &db_data[best_offset..];
+
+    // Logger le choix final
+    let final_debug = format!(
+        "CHOSEN: {} (offset={}+{}={}, sqlcipher_size={}, mod1024={}, mod4096={})",
+        best_name,
+        json_end,
+        best_offset,
+        json_end + best_offset,
+        actual_db_data.len(),
+        actual_db_data.len() % 1024,
+        actual_db_data.len() % 4096,
+    );
+    let _ = fs::write(temp_dir.join("split_chosen.txt"), &final_debug);
+
+    // Ecrire les donnees SQLCipher
     let db_path = temp_dir.join("vault.enpassdb");
     let mut file = fs::File::create(&db_path)
         .map_err(|e| format!("Erreur creation fichier temporaire: {}", e))?;
     file.write_all(actual_db_data)
         .map_err(|e| format!("Erreur ecriture donnees SQLCipher: {}", e))?;
-
-    // Ecrire les infos de debug
-    let debug_info = format!(
-        "json_size={}, padding_zeros={}, sqlcipher_size={}, total={}",
-        json_header.len(),
-        padding_size,
-        actual_db_data.len(),
-        raw_bytes.len()
-    );
-    let _ = fs::write(temp_dir.join("split_debug.txt"), &debug_info);
 
     // Mettre a jour le cache
     {
@@ -263,6 +336,51 @@ fn download_vault_from_webdav(
     }
 
     Ok(db_path)
+}
+
+/// Telecharge les donnees brutes du vault depuis WebDAV et retourne les composants separes.
+/// Retourne (raw_bytes, json_header, db_data_after_json, json_end_offset)
+fn download_raw_webdav_data(
+    webdav_url: &str,
+    pcloud_username: &str,
+    pcloud_password: &str,
+) -> Result<(Vec<u8>, String, Vec<u8>, usize), String> {
+    // Verifier le cache - si un fichier existe deja, lire les donnees brutes du fichier sync
+    // On ne peut pas utiliser le cache ici car on a besoin des donnees brutes
+    // Le cache sera gere par open_vault_webdav apres succes
+
+    let base_url = webdav_url.trim_end_matches('/');
+    let sync_url = format!("{}/vault.enpassdbsync", base_url);
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("Erreur creation client HTTP: {}", e))?;
+
+    let raw_bytes = download_webdav_file(&client, &sync_url, pcloud_username, pcloud_password)
+        .map_err(|e| {
+            format!(
+                "Impossible de telecharger vault.enpassdbsync depuis {}. {}",
+                sync_url, e
+            )
+        })?;
+
+    if raw_bytes.is_empty() {
+        return Err("Le fichier vault.enpassdbsync telecharge est vide".to_string());
+    }
+
+    let (json_header, db_data) = split_enpassdbsync(&raw_bytes)?;
+    let json_end = json_header.len();
+
+    if db_data.is_empty() {
+        return Err(format!(
+            "Aucune donnee SQLCipher trouvee apres le header JSON ({} octets de JSON, {} octets total)",
+            json_end,
+            raw_bytes.len()
+        ));
+    }
+
+    Ok((raw_bytes, json_header, db_data, json_end))
 }
 
 /// Invalide le cache WebDAV (force un nouveau telechargement au prochain appel)
@@ -282,79 +400,198 @@ pub fn invalidate_webdav_cache() {
 /// - Header JSON (metadonnees = kdf_algo, kdf_iter, etc.)
 /// - Donnees SQLCipher brutes
 ///
-/// download_vault_from_webdav separe les deux et ecrit :
-/// - vault_info.json (le header JSON)
-/// - vault.enpassdb (les donnees SQLCipher)
+/// Cette fonction telecharge le fichier, puis essaie plusieurs offsets
+/// pour extraire les donnees SQLCipher (le format .enpassdbsync aligne
+/// les donnees sur une frontiere de page variable selon les versions).
 pub fn open_vault_webdav(
     webdav_url: &str,
     pcloud_username: &str,
     pcloud_password: &str,
     master_password: &str,
 ) -> Result<Connection, String> {
-    let db_path = download_vault_from_webdav(webdav_url, pcloud_username, pcloud_password)?;
+    // Telecharger les donnees brutes et le JSON
+    let (raw_bytes, json_header, db_data, json_end) =
+        download_raw_webdav_data(webdav_url, pcloud_username, pcloud_password)?;
 
-    // Lire les iterations KDF depuis vault_info.json (extrait du header .enpassdbsync)
     let temp_dir = std::env::temp_dir().join("cockpit-enpass-webdav");
-    let sync_info_path = temp_dir.join("vault_info.json");
+    fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Erreur creation dossier temporaire: {}", e))?;
 
-    let kdf_iterations = if sync_info_path.exists() {
-        match fs::read_to_string(&sync_info_path) {
-            Ok(json_content) => {
-                // Parser le JSON pour extraire kdf_iter
-                match serde_json::from_str::<VaultInfo>(&json_content) {
-                    Ok(info) => {
-                        if info.kdf_algo != "pbkdf2" {
-                            return Err(format!(
-                                "Algorithme KDF non supporte: {} (attendu: pbkdf2)",
-                                info.kdf_algo
-                            ));
-                        }
-                        if info.have_keyfile != 0 {
-                            return Err(
-                                "Les vaults avec keyfile ne sont pas supportes.".to_string()
-                            );
-                        }
-                        Some(info.kdf_iter)
-                    }
-                    Err(_) => None, // JSON invalide, on essaiera plusieurs valeurs
-                }
+    // Ecrire le JSON des metadonnees
+    let json_path = temp_dir.join("vault_info.json");
+    fs::write(&json_path, &json_header)
+        .map_err(|e| format!("Erreur ecriture vault_info.json: {}", e))?;
+
+    // Parser les iterations KDF depuis le JSON header
+    let kdf_iterations: Option<u32> = match serde_json::from_str::<VaultInfo>(&json_header) {
+        Ok(info) => {
+            if info.kdf_algo != "pbkdf2" {
+                return Err(format!(
+                    "Algorithme KDF non supporte: {} (attendu: pbkdf2)",
+                    info.kdf_algo
+                ));
             }
-            Err(_) => None,
+            if info.have_keyfile != 0 {
+                return Err("Les vaults avec keyfile ne sont pas supportes.".to_string());
+            }
+            Some(info.kdf_iter)
         }
-    } else {
-        None
+        Err(_) => None,
     };
 
-    // Extraire le sel (16 premiers octets du .enpassdb)
-    let salt = extract_salt(&db_path)?;
+    // Construire la liste des iterations a essayer
+    let iterations_to_try: Vec<u32> = if let Some(iter) = kdf_iterations {
+        vec![iter]
+    } else {
+        KDF_ITERATIONS_TO_TRY.to_vec()
+    };
 
-    // Si on a les iterations depuis le JSON, les utiliser directement
-    if let Some(iterations) = kdf_iterations {
-        let db_key = derive_key(master_password.as_bytes(), &salt, iterations)?;
-        return open_encrypted_db(&db_path, &db_key);
+    // Construire la liste des offsets candidats pour les donnees SQLCipher
+    let total_size = raw_bytes.len();
+    let mut candidate_offsets: Vec<(String, usize)> = Vec::new();
+
+    for &page_size in &[1024usize, 4096, 8192, 16384] {
+        let aligned_offset = if json_end % page_size == 0 {
+            json_end
+        } else {
+            ((json_end / page_size) + 1) * page_size
+        };
+
+        if aligned_offset < total_size {
+            let offset_in_db_data = aligned_offset - json_end;
+            candidate_offsets.push((format!("align_{}", page_size), offset_in_db_data));
+        }
     }
 
-    // Sinon, essayer plusieurs valeurs d'iterations
-    let mut errors = Vec::new();
-    for &iterations in KDF_ITERATIONS_TO_TRY {
-        match (|| -> Result<Connection, String> {
-            let db_key = derive_key(master_password.as_bytes(), &salt, iterations)?;
-            open_encrypted_db(&db_path, &db_key)
-        })() {
-            Ok(conn) => return Ok(conn),
+    // Fallback: premier octet non-nul apres le JSON
+    let first_non_null = db_data.iter().position(|&b| b != 0x00).unwrap_or(0);
+    if first_non_null > 0 {
+        candidate_offsets.push(("first_non_null".to_string(), first_non_null));
+    }
+
+    // Fallback: pas de padding (donnees directement apres le JSON)
+    candidate_offsets.push(("no_padding".to_string(), 0));
+
+    // Dedupliquer
+    candidate_offsets.sort_by_key(|item| item.1);
+    candidate_offsets.dedup_by_key(|item| item.1);
+
+    // Debug: logger tous les candidats
+    let debug_candidates: Vec<String> = candidate_offsets
+        .iter()
+        .map(|(name, offset)| {
+            let abs_offset = json_end + *offset;
+            let remaining = total_size.saturating_sub(abs_offset);
+            let first_bytes = if *offset < db_data.len() {
+                let end = std::cmp::min(*offset + 16, db_data.len());
+                hex::encode(&db_data[*offset..end])
+            } else {
+                "OUT_OF_BOUNDS".to_string()
+            };
+            format!(
+                "{}:rel={},abs={},remaining={},mod1024={},first16={}",
+                name,
+                offset,
+                abs_offset,
+                remaining,
+                remaining % 1024,
+                first_bytes
+            )
+        })
+        .collect();
+
+    let debug_info = format!(
+        "json_size={}, db_data_size={}, total={}, kdf_iter={:?}, candidates=[{}]",
+        json_end,
+        db_data.len(),
+        total_size,
+        kdf_iterations,
+        debug_candidates.join(" | ")
+    );
+    let _ = fs::write(temp_dir.join("split_debug.txt"), &debug_info);
+
+    // Essayer chaque combinaison (offset, iterations, cipher_compat)
+    let mut all_errors: Vec<String> = Vec::new();
+    let db_path = temp_dir.join("vault.enpassdb");
+
+    for (offset_name, offset) in &candidate_offsets {
+        if *offset >= db_data.len() {
+            continue;
+        }
+
+        let actual_db_data = &db_data[*offset..];
+        if actual_db_data.is_empty() {
+            continue;
+        }
+
+        // Ecrire ce candidat sur disque
+        if let Err(e) = fs::write(&db_path, actual_db_data) {
+            all_errors.push(format!("{}: erreur ecriture: {}", offset_name, e));
+            continue;
+        }
+
+        // Extraire le sel (16 premiers octets)
+        let salt = match extract_salt(&db_path) {
+            Ok(s) => s,
             Err(e) => {
-                errors.push(format!("iter={}: {}", iterations, e));
+                all_errors.push(format!("{}: {}", offset_name, e));
+                continue;
+            }
+        };
+
+        for &iterations in &iterations_to_try {
+            let db_key = match derive_key(master_password.as_bytes(), &salt, iterations) {
+                Ok(k) => k,
+                Err(e) => {
+                    all_errors.push(format!(
+                        "{}/iter={}: derive_key: {}",
+                        offset_name, iterations, e
+                    ));
+                    continue;
+                }
+            };
+
+            match open_encrypted_db(&db_path, &db_key) {
+                Ok(conn) => {
+                    // Succes! Logger et mettre en cache
+                    let success_info = format!(
+                        "SUCCESS: offset={} (abs={}), iterations={}, db_size={}, salt={}",
+                        offset_name,
+                        json_end + *offset,
+                        iterations,
+                        actual_db_data.len(),
+                        hex::encode(&salt)
+                    );
+                    let _ = fs::write(temp_dir.join("split_success.txt"), &success_info);
+
+                    // Mettre a jour le cache
+                    if let Ok(mut cache) = WEBDAV_CACHE.lock() {
+                        *cache = Some(WebDavCache {
+                            local_path: db_path.clone(),
+                            source_url: webdav_url.to_string(),
+                        });
+                    }
+
+                    return Ok(conn);
+                }
+                Err(e) => {
+                    all_errors.push(format!("{}/iter={}: {}", offset_name, iterations, e));
+                }
             }
         }
     }
 
-    let file_size = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
+    // Aucune combinaison n'a fonctionne
+    // Logger les erreurs
+    let _ = fs::write(temp_dir.join("split_errors.txt"), all_errors.join("\n"));
+
     Err(format!(
-        "Impossible d'ouvrir le vault (taille: {} Ko). \
-         Le fichier vault.enpassdbsync n'a pas fourni les iterations KDF. \
-         Tentatives: {}",
-        file_size / 1024,
-        errors.join(" | ")
+        "Impossible d'ouvrir le vault: mot de passe incorrect ou version de base non supportee. \
+         Details: {} | Debug: json_end={}, total={}, candidates={}",
+        all_errors.last().unwrap_or(&"aucune tentative".to_string()),
+        json_end,
+        total_size,
+        candidate_offsets.len()
     ))
 }
 
@@ -508,58 +745,91 @@ fn open_encrypted_db(db_path: &Path, db_key: &[u8]) -> Result<Connection, String
 
     let mut errors = Vec::new();
 
+    // Diagnostic: version SQLCipher, cle et fichier
+    let file_size = fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
+    let cipher_version = {
+        let tmp_conn = Connection::open_in_memory();
+        match tmp_conn {
+            Ok(c) => c
+                .query_row("PRAGMA cipher_version", [], |row| row.get::<_, String>(0))
+                .unwrap_or_else(|_| "unknown".to_string()),
+            Err(_) => "error".to_string(),
+        }
+    };
+    errors.push(format!(
+        "sqlcipher={}, key_prefix={}, key_len={}, file_size={}, file_mod4096={}",
+        cipher_version,
+        &hex_key_truncated[..16],
+        hex_key_truncated.len(),
+        file_size,
+        file_size % 4096
+    ));
+
     // Essayer SQLCipher v4 d'abord (Enpass 6.8+), puis v3
+    // cipher_compatibility configure automatiquement page_size, hmac, kdf, etc.
     for cipher_compat in [4, 3] {
-        // Essayer aussi avec page_size 4096 (defaut SQLCipher 4) et 1024 (ancien)
-        for page_size in [4096, 1024] {
-            match try_open_db(db_path, hex_key_truncated, cipher_compat, page_size) {
-                Ok(conn) => return Ok(conn),
-                Err(e) => {
-                    errors.push(format!("v{}/page{}: {}", cipher_compat, page_size, e));
-                }
+        match try_open_db(db_path, hex_key_truncated, cipher_compat, 0) {
+            Ok(conn) => return Ok(conn),
+            Err(e) => {
+                errors.push(e);
             }
         }
     }
 
+    // Lire le debug du split si disponible
+    let split_debug = {
+        let temp_dir = std::env::temp_dir().join("cockpit-enpass-webdav");
+        let chosen_path = temp_dir.join("split_chosen.txt");
+        let debug_path = temp_dir.join("split_debug.txt");
+        let chosen = fs::read_to_string(&chosen_path).unwrap_or_default();
+        let debug = fs::read_to_string(&debug_path).unwrap_or_default();
+        if !chosen.is_empty() || !debug.is_empty() {
+            format!(" | Split: {} | {}", chosen, debug)
+        } else {
+            String::new()
+        }
+    };
+
     Err(format!(
-        "Impossible d'ouvrir le vault: mot de passe incorrect ou version de base non supportee. Details: {}",
-        errors.join(" | ")
+        "Impossible d'ouvrir le vault: mot de passe incorrect ou version de base non supportee. \
+         Diag: {} | Essais: {}{}",
+        errors.first().unwrap_or(&String::new()),
+        errors[1..].join(" | "),
+        split_debug
     ))
 }
 
 /// Tente d'ouvrir la base avec une version SQLCipher specifique
+///
+/// PRAGMA key + cipher_compatibility configure automatiquement :
+/// page_size, hmac_algorithm, kdf_algorithm, cipher_use_hmac, etc.
 fn try_open_db(
     db_path: &Path,
     hex_key: &str,
     cipher_compat: u32,
-    page_size: u32,
+    _page_size: u32,
 ) -> Result<Connection, String> {
     let conn = Connection::open(db_path).map_err(|e| format!("Erreur ouverture SQLite: {}", e))?;
 
-    // Configurer la cle de chiffrement
-    conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
+    // PRAGMA key doit etre la premiere instruction executee sur la connexion
+    // Format raw key : "x'<64 hex chars>'" (32 bytes = AES-256)
+    let pragma_key = format!("PRAGMA key = \"x'{}'\";", hex_key);
+    conn.execute_batch(&pragma_key)
         .map_err(|e| format!("Erreur PRAGMA key: {}", e))?;
 
-    // Configurer la compatibilite SQLCipher
+    // Configurer la compatibilite SQLCipher (v3 ou v4)
+    // Ce PRAGMA configure automatiquement : page_size, hmac_algorithm,
+    // kdf_algorithm, cipher_use_hmac, etc. pour la version cible
     conn.execute_batch(&format!("PRAGMA cipher_compatibility = {};", cipher_compat))
         .map_err(|e| format!("Erreur PRAGMA cipher_compatibility: {}", e))?;
 
-    // Configurer la taille de page si ce n'est pas la valeur par defaut
-    conn.execute_batch(&format!("PRAGMA cipher_page_size = {};", page_size))
-        .map_err(|e| format!("Erreur PRAGMA cipher_page_size: {}", e))?;
-
-    // Verifier que la base est accessible
-    let test: Result<i64, _> =
-        conn.query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get(0));
-
-    match test {
+    // Verifier que la base est accessible en lisant sqlite_master
+    // C'est la premiere operation de lecture, qui declenche le dechiffrement
+    match conn.query_row::<i64, _, _>("SELECT count(*) FROM sqlite_master", [], |row| row.get(0)) {
         Ok(_) => Ok(conn),
         Err(e) => {
             drop(conn);
-            Err(format!(
-                "Base non lisible avec SQLCipher v{}/page{}: {}",
-                cipher_compat, page_size, e
-            ))
+            Err(format!("v{}: {}", cipher_compat, e))
         }
     }
 }
